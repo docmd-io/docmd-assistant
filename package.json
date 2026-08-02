@@ -1,0 +1,57 @@
+{
+  "name": "docmd-assistant",
+  "version": "0.1.0",
+  "description": "Universal headless AI Assistant engine with extensible tool execution and custom relay support.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "docmd": {
+    "key": "docmd-assistant",
+    "kind": "assistant-engine",
+    "displayName": "docmd-assistant",
+    "tagline": "Universal headless AI Assistant engine with extensible tool execution."
+  },
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "typecheck": "npx tsc --noEmit",
+    "clean": "rm -rf dist node_modules *.tsbuildinfo > /dev/null 2>&1 || true"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "aiplug": "^0.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "assistant",
+    "ai",
+    "chat",
+    "widget",
+    "documentation",
+    "docmd",
+    "aiplug",
+    "rag"
+  ],
+  "author": {
+    "name": "Ghazi",
+    "url": "https://mgks.dev"
+  },
+  "license": "MIT"
+}
