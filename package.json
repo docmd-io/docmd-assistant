@@ -7,8 +7,9 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
@@ -23,7 +24,8 @@
     "build": "node build.js",
     "dev": "node build.js --watch",
     "typecheck": "npx tsc --noEmit",
-    "clean": "rm -rf dist node_modules *.tsbuildinfo > /dev/null 2>&1 || true"
+    "clean": "rm -rf dist node_modules *.tsbuildinfo > /dev/null 2>&1 || true",
+    "prep": "npm run clean && npm install --silent && npm run build"
   },
   "files": [
     "dist"
@@ -53,5 +55,13 @@
     "name": "Ghazi",
     "url": "https://mgks.dev"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/docmd-io/docmd-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/docmd-io/docmd-assistant/issues"
+  },
+  "homepage": "https://docmd.io/assistant",
   "license": "MIT"
 }
