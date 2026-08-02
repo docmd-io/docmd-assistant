@@ -8,7 +8,7 @@ import {
   AssistantEventListener
 } from './types.js';
 
-export class DocMDAssistantEngine {
+export class DocmdAssistantEngine {
   private options: AssistantOptions;
   private history: ChatMessage[] = [];
   private tools: Map<string, AssistantTool> = new Map();
