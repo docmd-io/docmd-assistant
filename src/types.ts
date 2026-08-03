@@ -80,6 +80,8 @@ export interface ChatMessage {
 export interface ChatResponse {
   message: string;
   role: 'assistant';
+  unconfigured?: boolean;
+  unconfiguredData?: any;
   toolCalls?: Array<{
     name: string;
     arguments: Record<string, any>;

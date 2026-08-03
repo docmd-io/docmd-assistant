@@ -227,6 +227,8 @@ export class DocmdAssistantEngine {
         projectId: opts.projectId,
         siteId: opts.projectId,
         message: this.history[this.history.length - 1]?.content || '',
+        pageUrl: typeof location !== 'undefined' ? location.href : undefined,
+        pageTitle: typeof document !== 'undefined' ? document.title : undefined,
         history: this.history.slice(0, -1).map(m => ({
           sender: m.sender || m.role,
           text: m.content
@@ -248,6 +250,17 @@ export class DocmdAssistantEngine {
       });
 
       const data = await res.json();
+
+      if (data.unconfigured) {
+        return {
+          message: data.message || 'Configuration incomplete.',
+          role: 'assistant',
+          unconfigured: true,
+          unconfiguredData: data,
+          history: this.getHistory()
+        };
+      }
+
       if (!res.ok || data.error) {
         throw new Error(data.error || `Relay error (${res.status})`);
       }
