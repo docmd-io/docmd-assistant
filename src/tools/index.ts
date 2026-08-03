@@ -1,6 +1,9 @@
 import { AssistantTool, SearchResultItem } from '../types.js';
 
-export function createStandardTools(customSearch?: (query: string) => Promise<SearchResultItem[]>): AssistantTool[] {
+export function createStandardTools(
+  customSearch?: (query: string) => Promise<SearchResultItem[]>,
+  customReader?: (path: string) => Promise<string | { title?: string; content: string }>
+): AssistantTool[] {
   return [
     {
       name: 'search_documentation',
@@ -99,6 +102,18 @@ export function createStandardTools(customSearch?: (query: string) => Promise<Se
         required: ['path']
       },
       execute: async ({ path: pagePath }: { path: string }) => {
+        if (customReader) {
+          try {
+            const res = await customReader(pagePath);
+            if (typeof res === 'string') {
+              return { path: pagePath, content: res.slice(0, 3500) };
+            }
+            return { path: pagePath, title: res.title, content: (res.content || '').slice(0, 3500) };
+          } catch (err) {
+            console.warn('[docmd-assistant] Custom reader failed:', err);
+          }
+        }
+
         if (typeof window === 'undefined') {
           return { error: 'Window context unavailable' };
         }
