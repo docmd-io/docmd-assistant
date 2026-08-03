@@ -49,10 +49,8 @@ export interface AssistantOptions {
   temperature?: number;
   /** Max tokens setting */
   maxTokens?: number;
-  /** Thinking / Reasoning mode toggle (disabled by default) */
-  thinking?: boolean;
-  /** Reasoning effort level when thinking mode is explicitly enabled */
-  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  /** Reasoning mode toggle or level (disabled by default) */
+  reasoning?: boolean | 'none' | 'low' | 'medium' | 'high';
   /** Custom headers for relay requests */
   headers?: Record<string, string>;
 }

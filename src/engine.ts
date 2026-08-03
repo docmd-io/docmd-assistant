@@ -8,7 +8,7 @@ import {
   AssistantEventListener
 } from './types.js';
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.2';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.3';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd AI — an expert, precise documentation assistant strictly dedicated to answering technical questions about this documentation site.
 
@@ -174,9 +174,11 @@ export class DocmdAssistantEngine {
 
   private async runAiplugTurn(opts: AssistantOptions): Promise<ChatResponse> {
     try {
+      const reasoningVal = opts.reasoning ?? false;
       const adapterOptions: Record<string, any> = {
         apiKey: opts.apiKey || '',
-        baseURL: opts.baseURL
+        baseURL: opts.baseURL,
+        ...(reasoningVal ? { options: { providerOptions: { reasoning: reasoningVal } } } : {})
       };
       if (opts.provider) adapterOptions.provider = opts.provider;
       if (opts.model) adapterOptions.model = opts.model;
@@ -221,6 +223,7 @@ export class DocmdAssistantEngine {
 
   private async runRelayTurn(endpoint: string, opts: AssistantOptions): Promise<ChatResponse> {
     try {
+      const reasoningVal = opts.reasoning ?? false;
       const payload: Record<string, any> = {
         projectId: opts.projectId,
         siteId: opts.projectId,
@@ -230,7 +233,7 @@ export class DocmdAssistantEngine {
           text: m.content
         })),
         systemPrompt: this.systemPrompt,
-        thinking: opts.thinking ?? false
+        reasoning: reasoningVal
       };
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
