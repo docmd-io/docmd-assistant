@@ -9,9 +9,9 @@
   
   <!-- ONE LINE SUMMARY -->
   <p>
-    <b>Universal headless AI Assistant engine for documentation.</b>
+    <b>AI assistant grounded in your docs.</b>
     <br/>
-    Multi-provider LLM support, client tool execution, and custom relay support.
+    Reads your documentation, answers questions in context. Works with 100+ models, any website, and keeps your API keys secure.
   </p>
   
   <!-- BADGES -->

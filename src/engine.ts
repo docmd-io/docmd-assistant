@@ -211,7 +211,7 @@ export class DocmdAssistantEngine {
 
   private async runRelayTurn(endpoint: string, opts: AssistantOptions): Promise<ChatResponse> {
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         projectId: opts.projectId,
         siteId: opts.projectId,
         message: this.history[this.history.length - 1]?.content || '',
@@ -219,10 +219,10 @@ export class DocmdAssistantEngine {
           sender: m.sender || m.role,
           text: m.content
         })),
-        systemPrompt: this.systemPrompt,
-        provider: opts.provider,
-        model: opts.model
+        systemPrompt: this.systemPrompt
       };
+      if (opts.provider) payload.provider = opts.provider;
+      if (opts.model) payload.model = opts.model;
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -239,7 +239,7 @@ export class DocmdAssistantEngine {
         throw new Error(data.error || `Relay error (${res.status})`);
       }
 
-      const replyText = data.reply || data.response || data.message || 'No response returned.';
+      const replyText = data.text || data.reply || data.response || data.message || 'No response returned.';
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
