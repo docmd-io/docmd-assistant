@@ -163,16 +163,15 @@ export class DocmdAssistantEngine {
 
   private async runAiplugTurn(opts: AssistantOptions): Promise<ChatResponse> {
     try {
-      const provider = opts.provider || 'openai';
-      const model = opts.model || 'gpt-4o-mini';
-
-      const { createLLMAdapter } = await import('aiplug');
-      const adapter = createLLMAdapter({
-        provider,
-        model,
+      const adapterOptions: Record<string, any> = {
         apiKey: opts.apiKey || '',
         baseURL: opts.baseURL
-      });
+      };
+      if (opts.provider) adapterOptions.provider = opts.provider;
+      if (opts.model) adapterOptions.model = opts.model;
+
+      const { createLLMAdapter } = await import('aiplug');
+      const adapter = createLLMAdapter(adapterOptions as any);
 
       const formattedMessages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }> = [
         { role: 'system', content: this.systemPrompt }
