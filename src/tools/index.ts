@@ -87,6 +87,40 @@ export function createStandardTools(customSearch?: (query: string) => Promise<Se
         }
         return { success: false, reason: 'Clipboard API unavailable' };
       }
+    },
+    {
+      name: 'read_documentation_page',
+      description: 'Fetch and read the full content of a specific documentation page or section path.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'The page path to fetch and read (e.g. /quickstart or /docs/setup)' }
+        },
+        required: ['path']
+      },
+      execute: async ({ path: pagePath }: { path: string }) => {
+        if (typeof window === 'undefined') {
+          return { error: 'Window context unavailable' };
+        }
+        try {
+          const targetUrl = pagePath.startsWith('http') ? pagePath : window.location.origin + (pagePath.startsWith('/') ? pagePath : '/' + pagePath);
+          const res = await fetch(targetUrl);
+          if (res.ok) {
+            const html = await res.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const mainContent = doc.querySelector('main, article, [role="main"], body');
+            const text = mainContent ? (mainContent.textContent || '').replace(/\s+/g, ' ').slice(0, 3500) : '';
+            return {
+              path: pagePath,
+              content: text || 'Page content could not be extracted.'
+            };
+          }
+        } catch (err) {
+          console.warn('[docmd-assistant] Failed to fetch page content:', err);
+        }
+        return { error: `Could not load page content for ${pagePath}` };
+      }
     }
   ];
 }
