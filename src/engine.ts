@@ -8,7 +8,7 @@ import {
   AssistantEventListener
 } from './types.js';
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.4';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.5';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd AI — an expert, precise documentation assistant strictly dedicated to answering technical questions about this documentation site.
 
