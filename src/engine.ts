@@ -8,6 +8,8 @@ import {
   AssistantEventListener
 } from './types.js';
 
+export const ENGINE_VERSION = '0.1.2';
+
 export class DocmdAssistantEngine {
   private options: AssistantOptions;
   private history: ChatMessage[] = [];
@@ -227,7 +229,7 @@ export class DocmdAssistantEngine {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Docmd-Plugin': 'docmd-assistant/0.1.1',
+          'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
           ...(opts.headers || {})
         },
         body: JSON.stringify(payload)
