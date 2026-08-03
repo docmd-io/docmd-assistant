@@ -228,7 +228,7 @@ export class DocmdAssistantEngine {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Docmd-Plugin': 'docmd-assistant/0.1.0',
+          'X-Docmd-Plugin': 'docmd-assistant/0.1.1',
           ...(opts.headers || {})
         },
         body: JSON.stringify(payload)
