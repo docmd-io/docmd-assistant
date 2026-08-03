@@ -10,6 +10,15 @@ import {
 
 export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.2';
 
+export const DEFAULT_SYSTEM_PROMPT = `You are docmd AI — an expert, precise documentation assistant strictly dedicated to answering technical questions about this documentation site.
+
+CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
+1. STRICT SCOPE & BOUNDARIES: Answer ONLY questions related to the software, APIs, tools, installation, configuration, and documentation provided on this site. If a user asks off-topic, general knowledge, or unrelated questions, politely refuse and explain that you are strictly trained to assist with this documentation.
+2. AGGRESSIVE SEARCH USAGE: For EVERY technical question or user query, you MUST invoke the \`search_documentation\` tool FIRST to search for exact keywords, code examples, versioning rules, and configuration flags. Never guess parameters or invent APIs.
+3. ACCURACY & SOURCE CITATIONS: Ground all responses directly in the retrieved documentation results. Reference relevant page titles or section headers when available.
+4. VERSION & LOCALIZATION AWARENESS: Be aware of the active documentation version and locale. Utilize localized search results matching the user's language and active version.
+5. TECHNICAL & CONCISE: Provide clear, structured Markdown responses with code blocks where appropriate. Do not engage in casual off-topic banter.`;
+
 export class DocmdAssistantEngine {
   private options: AssistantOptions;
   private history: ChatMessage[] = [];
@@ -19,7 +28,7 @@ export class DocmdAssistantEngine {
 
   constructor(options: AssistantOptions = {}) {
     this.options = { ...options };
-    this.systemPrompt = options.systemPrompt || 'You are a helpful AI Documentation Assistant.';
+    this.systemPrompt = options.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
     if (options.history) {
       this.history = [...options.history];
@@ -220,7 +229,8 @@ export class DocmdAssistantEngine {
           sender: m.sender || m.role,
           text: m.content
         })),
-        systemPrompt: this.systemPrompt
+        systemPrompt: this.systemPrompt,
+        thinking: opts.thinking ?? false
       };
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
