@@ -8,7 +8,7 @@ import {
   AssistantEventListener
 } from './types.js';
 
-export const ENGINE_VERSION = '0.1.2';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.2';
 
 export class DocmdAssistantEngine {
   private options: AssistantOptions;

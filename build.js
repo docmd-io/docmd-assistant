@@ -1,5 +1,8 @@
 import esbuild from 'esbuild';
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
 
 async function build() {
   // 1. Build ESM Node/Browser Headless Engine
@@ -11,7 +14,10 @@ async function build() {
     format: 'esm',
     target: 'es2022',
     sourcemap: true,
-    external: ['aiplug']
+    external: ['aiplug'],
+    define: {
+      'process.env.ENGINE_VERSION': JSON.stringify(pkg.version)
+    }
   });
 
   // 2. Build CJS Module
@@ -21,15 +27,18 @@ async function build() {
     bundle: true,
     platform: 'node',
     format: 'cjs',
-    target: 'node18',
+    target: 'node20',
     sourcemap: true,
-    external: ['aiplug']
+    external: ['aiplug'],
+    define: {
+      'process.env.ENGINE_VERSION': JSON.stringify(pkg.version)
+    }
   });
 
   // 3. Emit TypeScript Declarations
   execSync('npx tsc --emitDeclarationOnly', { stdio: 'inherit' });
 
-  console.log('✅ docmd-assistant headless library build complete!');
+  console.log(`✅ docmd-assistant headless library build complete (v${pkg.version})!`);
   console.log(' - dist/index.js (ESM)');
   console.log(' - dist/index.cjs (CJS)');
   console.log(' - dist/index.d.ts (Types)');
