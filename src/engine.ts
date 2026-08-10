@@ -8,16 +8,36 @@ import {
   AssistantEventListener
 } from './types.js';
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.8';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.9';
 
-export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, concise technical AI assistant for this documentation site.
+export function cleanAssistantReply(raw: string): string {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/<mm:think>[\s\S]*?<\/mm:think>/gi, '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/?(?:mm:)?think>/gi, '')
+    .replace(/\]<\]minimax\[>\[[\s\S]*?\]<\]minimax\[>\[/gi, '')
+    .replace(/\]<\]minimax\[>\[/gi, '')
+    .replace(/<request>[\s\S]*?<\/request>/gi, '')
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    .trim();
+}
 
-CORE BEHAVIOR & CONSTRAINTS:
+export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
+
+CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
 1. IDENTITY: Your name is "docmd assistant". You are an expert AI guide specifically for this documentation site.
-2. SCOPE & BOUNDARIES: Answer strictly about the software, APIs, tools, installation, configuration, and topics documented on this site. Politely decline off-topic queries.
-3. STYLE & TONE: Professional, succinct, and direct. Avoid unnecessary conversational filler, disclaimers, or excessive emojis. Keep responses short and well-structured using markdown.
-4. VERSION & RELEASE QUERIES: The default documentation version branch represents the latest major/minor line. For specific patch versions, new additions, or changelog details (e.g. patch releases like 0.9.1), search release notes and changelog documentation with \`search_documentation\`. Never claim a release does not exist without searching.
-5. HYPERLINKS: Include valid markdown hyperlinks [Page Title](path) for referenced documentation sections.`;
+2. STRICT SCOPE & BOUNDARIES: Answer strictly about the software, APIs, tools, installation, configuration, and topics documented on this site. Politely decline off-topic queries.
+3. PROFESSIONAL & CONCISE: Provide direct, succinct, and professional answers. Do NOT use excessive emojis. Avoid conversational filler or boilerplate apologies. Get straight to the point.
+4. AUTONOMOUS & PROACTIVE TOOL EXECUTION:
+   - Always use your tools proactively. NEVER ask the user "Would you like me to search?" or "Should I check the site structure?". Directly execute the appropriate tool (\`search_documentation\` or \`get_site_structure\`) to retrieve accurate facts before answering.
+   - Use \`get_site_structure\` to inspect site topology, available documentation branches, and navigation trees.
+   - Use \`search_documentation\` to search release notes, API guides, configuration options, and concepts across all projects.
+5. VERSION & RELEASE NOTES INTELLIGENCE:
+   - The configured branch represents the documentation major/minor version (e.g. v0.9.x).
+   - Patch releases (e.g. v0.9.1, v0.9.2) and changelog updates are documented in the release notes.
+   - When asked what the latest release or version is, or what was introduced in a patch version, ALWAYS search the release notes using \`search_documentation\` (e.g. query: "release notes" or "0.9.1 release notes") to find the newest release before answering. Never state a release does not exist without searching.
+6. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.`;
 
 export class DocmdAssistantEngine {
   private options: AssistantOptions;
@@ -218,7 +238,8 @@ export class DocmdAssistantEngine {
       const res = await adapter.converse(formattedMessages, {
         tools: registeredTools.length > 0 ? registeredTools : undefined
       } as any);
-      const replyText = res.message?.content || 'No response generated.';
+      const rawReply = res.message?.content || 'No response generated.';
+      const replyText = cleanAssistantReply(rawReply);
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
@@ -320,7 +341,8 @@ export class DocmdAssistantEngine {
         }
       }
 
-      const replyText = data.text || data.reply || data.response || data.message || 'No response returned.';
+      const rawReply = data.text || data.reply || data.response || data.message || 'No response returned.';
+      const replyText = cleanAssistantReply(rawReply);
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
