@@ -25,6 +25,7 @@ export class DocmdAssistantEngine {
   private tools: Map<string, AssistantTool> = new Map();
   private systemPrompt: string;
   private listeners: Map<AssistantEventType, Set<AssistantEventListener>> = new Map();
+  private isExecuting = false;
 
   constructor(options: AssistantOptions = {}) {
     this.options = { ...options };
@@ -147,16 +148,25 @@ export class DocmdAssistantEngine {
   // --- Core Execution & Messaging ---
 
   public async sendMessage(content: string, overrideOptions?: Partial<AssistantOptions>): Promise<ChatResponse> {
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content,
-      sender: 'user',
-      timestamp: Date.now()
-    };
-    this.addMessage(userMsg);
-    this.emit('message', userMsg);
+    if (this.isExecuting) {
+      throw new Error('Assistant is currently processing a response. Please wait for the current query to complete.');
+    }
 
-    return this.runConversationTurn(overrideOptions);
+    this.isExecuting = true;
+    try {
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content,
+        sender: 'user',
+        timestamp: Date.now()
+      };
+      this.addMessage(userMsg);
+      this.emit('message', userMsg);
+
+      return await this.runConversationTurn(overrideOptions);
+    } finally {
+      this.isExecuting = false;
+    }
   }
 
   private async runConversationTurn(overrideOptions?: Partial<AssistantOptions>): Promise<ChatResponse> {
@@ -198,7 +208,16 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const res = await adapter.converse(formattedMessages);
+      const registeredTools = this.getTools().map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters || (t as any).schema,
+        execute: t.execute || (t as any).handler
+      }));
+
+      const res = await adapter.converse(formattedMessages, {
+        tools: registeredTools.length > 0 ? registeredTools : undefined
+      } as any);
       const replyText = res.message?.content || 'No response generated.';
 
       const assistantMsg: ChatMessage = {
