@@ -10,14 +10,14 @@ import {
 
 export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.7';
 
-export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — an expert, precise documentation assistant strictly dedicated to answering technical questions about this documentation site.
+export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, concise technical AI assistant for this documentation site.
 
-CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
-1. IDENTITY & NAME: Your name is "docmd assistant". If asked who you are or what your name is, introduce yourself strictly as "docmd assistant", an expert AI guide for this documentation site. Never identify yourself simply as "docmd" or "I am docmd".
-2. STRICT SCOPE & BOUNDARIES: Answer ONLY questions related to the software, APIs, tools, installation, configuration, and documentation provided on this site. If a user asks off-topic, general knowledge, or unrelated questions, politely refuse and explain that you are strictly trained to assist with this documentation.
-3. AGGRESSIVE SEARCH & READING: For EVERY technical question, invoke the \`search_documentation\` tool FIRST to locate relevant page sections. If search results provide path snippets, use \`read_documentation_page\` to fetch full page content when deeper context is needed.
-4. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for any referenced pages or sections so users can open and read them directly.
-5. TECHNICAL & CONCISE: Provide clear, structured Markdown responses with headers, code blocks, and lists where appropriate. Do not engage in casual off-topic banter.`;
+CORE BEHAVIOR & CONSTRAINTS:
+1. IDENTITY: Your name is "docmd assistant". You are an expert AI guide specifically for this documentation site.
+2. SCOPE & BOUNDARIES: Answer strictly about the software, APIs, tools, installation, configuration, and topics documented on this site. Politely decline off-topic queries.
+3. STYLE & TONE: Professional, succinct, and direct. Avoid unnecessary conversational filler, disclaimers, or excessive emojis. Keep responses short and well-structured using markdown.
+4. VERSION & RELEASE QUERIES: The default documentation version branch represents the latest major/minor line. For specific patch versions, new additions, or changelog details (e.g. patch releases like 0.9.1), search release notes and changelog documentation with \`search_documentation\`. Never claim a release does not exist without searching.
+5. HYPERLINKS: Include valid markdown hyperlinks [Page Title](path) for referenced documentation sections.`;
 
 export class DocmdAssistantEngine {
   private options: AssistantOptions;
@@ -243,6 +243,12 @@ export class DocmdAssistantEngine {
   private async runRelayTurn(endpoint: string, opts: AssistantOptions): Promise<ChatResponse> {
     try {
       const reasoningVal = opts.reasoning ?? false;
+      const registeredTools = this.getTools().map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters || (t as any).schema
+      }));
+
       const payload: Record<string, any> = {
         projectId: opts.projectId,
         siteId: opts.projectId,
@@ -254,7 +260,8 @@ export class DocmdAssistantEngine {
           text: m.content
         })),
         systemPrompt: this.systemPrompt,
-        reasoning: reasoningVal
+        reasoning: reasoningVal,
+        tools: registeredTools.length > 0 ? registeredTools : undefined
       };
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
@@ -283,6 +290,34 @@ export class DocmdAssistantEngine {
 
       if (!res.ok || data.error) {
         throw new Error(data.error || `Relay error (${res.status})`);
+      }
+
+      // Handle client-side tool execution calls if returned by relay
+      if (data.tool_calls && Array.isArray(data.tool_calls) && data.tool_calls.length > 0) {
+        for (const tc of data.tool_calls) {
+          const toolName = tc.name || tc.function?.name;
+          const toolArgs = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || tc.args || {});
+          const toolResult = await this.executeTool(toolName, toolArgs);
+          
+          try {
+            const followUpRes = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
+                ...(opts.headers || {})
+              },
+              body: JSON.stringify({
+                ...payload,
+                toolResult: { name: toolName, result: toolResult, callId: tc.id }
+              })
+            });
+            const followUpData = await followUpRes.json();
+            if (followUpData && (followUpData.reply || followUpData.message || followUpData.text || followUpData.response)) {
+              data.reply = followUpData.reply || followUpData.message || followUpData.text || followUpData.response;
+            }
+          } catch { /* silent */ }
+        }
       }
 
       const replyText = data.text || data.reply || data.response || data.message || 'No response returned.';
