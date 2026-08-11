@@ -566,6 +566,9 @@ export class DocmdAssistantEngine {
       sender: m.sender || m.role,
       text: m.content
     }));
+    if (currentHistory.length > 12) {
+      currentHistory = currentHistory.slice(-12);
+    }
 
     let userMessage = originalUserQuery;
     let allowTools = true;
@@ -714,6 +717,9 @@ export class DocmdAssistantEngine {
       sender: m.sender || m.role,
       text: m.content
     }));
+    if (currentHistory.length > 12) {
+      currentHistory = currentHistory.slice(-12);
+    }
 
     let userMessage = originalUserQuery;
     let allowTools = true;
