@@ -95,8 +95,30 @@ export interface ChatResponse {
   };
 }
 
+export interface StreamStatus {
+  text: string;
+  icon?: 'sparkles' | 'search' | 'folder-tree' | 'cog' | 'brain' | string;
+}
+
+export interface StreamCallbacks {
+  /** Emitted when assistant status changes (e.g. Thinking, Searching documentation) */
+  onStatus?: (status: StreamStatus) => void;
+  /** Emitted as live token deltas arrive from the LLM */
+  onChunk?: (delta: string) => void;
+  /** Emitted when a tool invocation begins */
+  onToolCall?: (data: { name: string; args: any; callId?: string }) => void;
+  /** Emitted when a tool execution produces results */
+  onToolResult?: (data: { name: string; args: any; result: any; callId?: string }) => void;
+  /** Emitted if an error occurs during streaming */
+  onError?: (error: Error) => void;
+  /** Emitted when the turn is completely finished and synthesized */
+  onFinish?: (response: ChatResponse) => void;
+}
+
 export type AssistantEventType =
   | 'message'
+  | 'chunk'
+  | 'status'
   | 'tool_call'
   | 'tool_result'
   | 'error'
