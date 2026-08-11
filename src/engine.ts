@@ -38,7 +38,7 @@ CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
 7. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.
 8. CONCISE & CLEAN OUTPUT: Keep your response clean, structured, and concise (under 1500 tokens). Use valid Markdown formatting without raw unescaped HTML or script tags.`;
 
-function truncateContextCleanly(text: string, maxLen: number = 2800): string {
+function truncateContextCleanly(text: string, maxLen: number = 15000): string {
   if (!text || text.length <= maxLen) return text;
   let sliced = text.slice(0, maxLen);
   const lastDoubleNL = sliced.lastIndexOf('\n\n');
@@ -673,11 +673,11 @@ export class DocmdAssistantEngine {
         });
         currentHistory.push({
           sender: 'user',
-          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
+          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
       userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
     }
@@ -841,11 +841,11 @@ export class DocmdAssistantEngine {
           });
           currentHistory.push({
             sender: 'user',
-            text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
+            text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
           });
         }
 
-        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
+        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
         userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
         allowTools = false;
         continue;
@@ -981,11 +981,11 @@ export class DocmdAssistantEngine {
         });
         currentHistory.push({
           sender: 'user',
-          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
+          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
       userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
       continue;
