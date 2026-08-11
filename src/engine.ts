@@ -650,11 +650,16 @@ export class DocmdAssistantEngine {
         });
         currentHistory.push({
           sender: 'user',
-          text: `[Tool Result for ${tc.name}]: ${resultStr}`
+          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
         });
       }
 
-      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      let contextStr = toolSummaries.join('\n\n');
+      if (contextStr.length > 2800) {
+        contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
+      }
+
+      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
     }
 
@@ -814,11 +819,16 @@ export class DocmdAssistantEngine {
           });
           currentHistory.push({
             sender: 'user',
-            text: `[Tool Result for ${tc.name}]: ${resultStr}`
+            text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
           });
         }
 
-        userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+        let contextStr = toolSummaries.join('\n\n');
+        if (contextStr.length > 2800) {
+          contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
+        }
+
+        userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
         allowTools = false;
         continue;
       }
@@ -953,11 +963,16 @@ export class DocmdAssistantEngine {
         });
         currentHistory.push({
           sender: 'user',
-          text: `[Tool Result for ${tc.name}]: ${resultStr}`
+          text: `[Tool Result for ${tc.name}]: ${resultStr.length > 400 ? resultStr.slice(0, 400) + '...' : resultStr}`
         });
       }
 
-      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      let contextStr = toolSummaries.join('\n\n');
+      if (contextStr.length > 2800) {
+        contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
+      }
+
+      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
       continue;
     }
