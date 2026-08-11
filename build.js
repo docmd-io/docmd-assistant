@@ -5,6 +5,46 @@ import { readFileSync } from 'fs';
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
 
 async function build() {
+  const isWatch = process.argv.includes('--watch');
+
+  if (isWatch) {
+    const ctxEsm = await esbuild.context({
+      entryPoints: ['src/index.ts'],
+      outfile: 'dist/index.js',
+      bundle: true,
+      platform: 'neutral',
+      format: 'esm',
+      target: 'es2022',
+      sourcemap: true,
+      external: ['aiplug'],
+      define: {
+        'process.env.ENGINE_VERSION': JSON.stringify(pkg.version)
+      }
+    });
+
+    const ctxCjs = await esbuild.context({
+      entryPoints: ['src/index.ts'],
+      outfile: 'dist/index.cjs',
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      target: 'node20',
+      sourcemap: true,
+      external: ['aiplug'],
+      define: {
+        'process.env.ENGINE_VERSION': JSON.stringify(pkg.version)
+      }
+    });
+
+    await ctxEsm.watch();
+    await ctxCjs.watch();
+    try {
+      execSync('npx tsc --emitDeclarationOnly', { stdio: 'inherit' });
+    } catch {}
+    console.log(`👀 Watching docmd-assistant (v${pkg.version}) for changes...`);
+    return;
+  }
+
   // 1. Build ESM Node/Browser Headless Engine
   await esbuild.build({
     entryPoints: ['src/index.ts'],

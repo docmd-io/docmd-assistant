@@ -81,8 +81,21 @@ export function parseAssistantOutput(raw: string): ParsedAssistantOutput {
   // Strip any remaining dangling tool tags
   text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|tool|action|request)\b[^>]*>/gi, '');
 
-  const cleanText = text.trim();
+  // 4. Normalize fenced code blocks for consistent rendering
+  // Ensure there's always a newline between the language tag and code content
+  // Handles: ```bashnpx... -> ```bash\nnpx...  and  ```bash npx... -> ```bash\nnpx...
+  text = text.replace(/```(\w+)(?:[ \t]+|\r?\n)?([\s\S]*?)```/g, (_match, lang, code) => {
+    const trimmedCode = code.replace(/^\s*\n?/, '');
+    return '```' + lang + '\n' + trimmedCode + '```';
+  });
+
+  let cleanText = text.trim();
   const thinking = thinkingParts.length > 0 ? thinkingParts.join('\n\n') : undefined;
+
+  // Fallback: If stripping thinking tags left the answer empty, recover the thinking text as the response
+  if (!cleanText && thinking) {
+    cleanText = thinking;
+  }
 
   return {
     cleanText,

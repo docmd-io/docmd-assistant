@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.10';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.11';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -25,10 +25,17 @@ CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
    - Always use your tools proactively. Directly execute the appropriate tool (\`search_documentation\` or \`get_site_structure\`) to retrieve accurate facts before answering.
    - Use \`get_site_structure\` to inspect site topology, available documentation branches, and navigation trees.
    - Use \`search_documentation\` to search release notes, API guides, configuration options, and concepts across all projects.
-5. VERSION & RELEASE NOTES INTELLIGENCE:
+5. SEARCH STRATEGY — THIS IS CRITICAL:
+   - The search index is KEYWORD-BASED ONLY. It matches individual keywords against page titles and content.
+   - ALWAYS search with a SINGLE keyword per search call. Never pass full sentences or multi-word phrases.
+   - To answer a question, identify 2-3 important keywords and call search_documentation SEPARATELY for each one.
+   - Example: For "how to deploy a docmd site locally", make separate calls: search("deploy"), search("local"), search("install").
+   - Example: For "what changed in the latest release", call: search("release"), search("changelog").
+   - Analyze the combined search results from all calls, then synthesize your answer.
+6. VERSION & RELEASE NOTES INTELLIGENCE:
    - Patch releases and changelog updates are documented in the release notes.
-   - When asked what the latest release or version is, or what was introduced in a patch version, ALWAYS search the release notes using \`search_documentation\` (e.g. query: "release notes" or "version") to find the newest release before answering.
-6. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.`;
+   - When asked what the latest release or version is, search with query: "release" or "changelog".
+7. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.`;
 
 function getToolStatusInfo(toolName: string, args: any): StreamStatus {
   if (toolName === 'search_documentation') {
@@ -534,12 +541,14 @@ export class DocmdAssistantEngine {
       parameters: t.parameters || (t as any).schema
     }));
 
+    const originalUserQuery = this.history[this.history.length - 1]?.content || '';
     let currentHistory = this.history.slice(0, -1).map(m => ({
       sender: m.sender || m.role,
       text: m.content
     }));
 
-    let userMessage = this.history[this.history.length - 1]?.content || '';
+    let userMessage = originalUserQuery;
+    let allowTools = true;
     const maxTurns = 5;
     let turnCount = 0;
     let finalReply = '';
@@ -556,7 +565,7 @@ export class DocmdAssistantEngine {
         history: currentHistory,
         systemPrompt: this.systemPrompt,
         reasoning: reasoningVal,
-        tools: registeredTools.length > 0 ? registeredTools : undefined
+        tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined
       };
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
@@ -617,23 +626,36 @@ export class DocmdAssistantEngine {
         break;
       }
 
-      // Execute tool calls locally and continue loop
+      // Ensure original user question is present in history before tool logs
+      if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
+        currentHistory.push({
+          sender: 'user',
+          text: originalUserQuery
+        });
+      }
+
+      // Execute tool calls locally and build synthesis context
+      const toolSummaries: string[] = [];
       for (const tc of toolCallsToExecute) {
         this.emit('tool_call', { name: tc.name, args: tc.args, callId: tc.id });
         const result = await this.executeTool(tc.name, tc.args);
         this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
-        // Update history with assistant tool call + tool result for next roundtrip
+        const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+
         currentHistory.push({
           sender: 'assistant',
           text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
         });
         currentHistory.push({
           sender: 'user',
-          text: `[Tool Result for ${tc.name}]: ${typeof result === 'string' ? result : JSON.stringify(result)}`
+          text: `[Tool Result for ${tc.name}]: ${resultStr}`
         });
-        userMessage = 'Please synthesize your answer based on the tool results above.';
       }
+
+      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      allowTools = false;
     }
 
     const assistantMsg: ChatMessage = {
@@ -666,12 +688,14 @@ export class DocmdAssistantEngine {
       parameters: t.parameters || (t as any).schema
     }));
 
+    const originalUserQuery = this.history[this.history.length - 1]?.content || '';
     let currentHistory = this.history.slice(0, -1).map(m => ({
       sender: m.sender || m.role,
       text: m.content
     }));
 
-    let userMessage = this.history[this.history.length - 1]?.content || '';
+    let userMessage = originalUserQuery;
+    let allowTools = true;
     const maxTurns = 5;
     let turnCount = 0;
     let finalReply = '';
@@ -688,7 +712,7 @@ export class DocmdAssistantEngine {
         history: currentHistory,
         systemPrompt: this.systemPrompt,
         reasoning: reasoningVal,
-        tools: registeredTools.length > 0 ? registeredTools : undefined,
+        tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined,
         stream: true
       };
       if (opts.provider) payload.provider = opts.provider;
@@ -706,10 +730,18 @@ export class DocmdAssistantEngine {
       });
 
       const contentType = res.headers.get('content-type') || '';
+      const isEventStream = contentType.toLowerCase().includes('text/event-stream');
 
-      // Fallback if endpoint returns JSON instead of SSE stream
-      if (contentType.includes('application/json') || !res.body) {
-        const data = await res.json();
+      // Standard HTTP response (JSON / text) handling
+      if (!isEventStream || !res.body) {
+        const textData = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(textData);
+        } catch {
+          data = { text: textData };
+        }
+
         if (data.unconfigured) {
           return {
             message: data.message || 'Configuration incomplete.',
@@ -752,6 +784,15 @@ export class DocmdAssistantEngine {
           break;
         }
 
+        // Ensure original user question is present in history before tool logs
+        if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
+          currentHistory.push({
+            sender: 'user',
+            text: originalUserQuery
+          });
+        }
+
+        const toolSummaries: string[] = [];
         for (const tc of toolCallsToExecute) {
           const statusInfo = getToolStatusInfo(tc.name, tc.args);
           callbacks.onStatus?.(statusInfo);
@@ -764,16 +805,21 @@ export class DocmdAssistantEngine {
           callbacks.onToolResult?.({ name: tc.name, args: tc.args, result, callId: tc.id });
           this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
+          const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+
           currentHistory.push({
             sender: 'assistant',
             text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
           });
           currentHistory.push({
             sender: 'user',
-            text: `[Tool Result for ${tc.name}]: ${typeof result === 'string' ? result : JSON.stringify(result)}`
+            text: `[Tool Result for ${tc.name}]: ${resultStr}`
           });
-          userMessage = 'Please synthesize your answer based on the tool results above.';
         }
+
+        userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+        allowTools = false;
         continue;
       }
 
@@ -825,6 +871,15 @@ export class DocmdAssistantEngine {
         }
       }
 
+      if (!streamReplyText && buffer.trim()) {
+        try {
+          const parsedBuf = JSON.parse(buffer.trim());
+          streamReplyText = parsedBuf.text || parsedBuf.reply || parsedBuf.message || buffer.trim();
+        } catch {
+          streamReplyText = buffer.trim();
+        }
+      }
+
       finalReply = parseAssistantOutput(streamReplyText).cleanText || streamReplyText;
       break;
     }
@@ -846,6 +901,23 @@ export class DocmdAssistantEngine {
   }
 
   // --- Tool Execution Pipeline ---
+
+  // Stopwords to strip from multi-word search queries before splitting into individual keywords
+  private static SEARCH_STOPWORDS = new Set([
+    'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
+    'should', 'may', 'might', 'must', 'can', 'could', 'to', 'of', 'in',
+    'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
+    'during', 'before', 'after', 'above', 'below', 'between', 'out',
+    'up', 'down', 'off', 'over', 'under', 'again', 'further', 'then',
+    'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all',
+    'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some',
+    'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than',
+    'too', 'very', 'just', 'because', 'but', 'and', 'or', 'if', 'while',
+    'about', 'what', 'which', 'who', 'whom', 'this', 'that', 'these',
+    'those', 'am', 'it', 'its', 'i', 'me', 'my', 'we', 'our', 'you',
+    'your', 'he', 'she', 'they', 'them', 'his', 'her', 'their'
+  ]);
 
   public async executeTool(name: string, rawArgs: any): Promise<any> {
     const tool = this.tools.get(name);
@@ -871,6 +943,36 @@ export class DocmdAssistantEngine {
     }
     if (!args.query && (args.q || args.search_query || args.text || args.input || args.keyword || args.keywords)) {
       args.query = args.q || args.search_query || args.text || args.input || args.keyword || args.keywords;
+    }
+
+    // Keyword-splitting safety net for search tools
+    if (name === 'search_documentation' && args.query && typeof args.query === 'string') {
+      const rawQuery = args.query.trim();
+      const words = rawQuery.toLowerCase().replace(/[^\w\s-]/g, '').split(/\s+/).filter(Boolean);
+      const keywords = words.filter((w: string) => w.length > 2 && !DocmdAssistantEngine.SEARCH_STOPWORDS.has(w));
+
+      // If 3+ meaningful keywords, split into individual searches and merge
+      if (keywords.length >= 3) {
+        const allResults: any[] = [];
+        const seenPaths = new Set<string>();
+
+        for (const keyword of keywords.slice(0, 5)) {
+          try {
+            const result = await handler({ ...args, query: keyword }, { engine: this });
+            if (Array.isArray(result)) {
+              for (const item of result) {
+                const key = item.path || item.url || item.title || JSON.stringify(item);
+                if (!seenPaths.has(key)) {
+                  seenPaths.add(key);
+                  allResults.push(item);
+                }
+              }
+            }
+          } catch { /* continue to next keyword */ }
+        }
+
+        return allResults.length > 0 ? allResults.slice(0, 8) : [];
+      }
     }
 
     try {
