@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.11';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.12';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -35,7 +35,27 @@ CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
 6. VERSION & RELEASE NOTES INTELLIGENCE:
    - Patch releases and changelog updates are documented in the release notes.
    - When asked what the latest release or version is, search with query: "release" or "changelog".
-7. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.`;
+7. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.
+8. CONCISE & CLEAN OUTPUT: Keep your response clean, structured, and concise (under 1500 tokens). Use valid Markdown formatting without raw unescaped HTML or script tags.`;
+
+function truncateContextCleanly(text: string, maxLen: number = 2800): string {
+  if (!text || text.length <= maxLen) return text;
+  let sliced = text.slice(0, maxLen);
+  const lastDoubleNL = sliced.lastIndexOf('\n\n');
+  if (lastDoubleNL > maxLen * 0.5) {
+    sliced = sliced.slice(0, lastDoubleNL);
+  } else {
+    const lastNL = sliced.lastIndexOf('\n');
+    if (lastNL > maxLen * 0.5) {
+      sliced = sliced.slice(0, lastNL);
+    }
+  }
+  const codeFenceCount = (sliced.match(/```/g) || []).length;
+  if (codeFenceCount % 2 !== 0) {
+    sliced += '\n```';
+  }
+  return sliced + '\n...[context truncated]';
+}
 
 function getToolStatusInfo(toolName: string, args: any): StreamStatus {
   if (toolName === 'search_documentation') {
@@ -654,11 +674,7 @@ export class DocmdAssistantEngine {
         });
       }
 
-      let contextStr = toolSummaries.join('\n\n');
-      if (contextStr.length > 2800) {
-        contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
-      }
-
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
       userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
     }
@@ -823,11 +839,7 @@ export class DocmdAssistantEngine {
           });
         }
 
-        let contextStr = toolSummaries.join('\n\n');
-        if (contextStr.length > 2800) {
-          contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
-        }
-
+        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
         userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
         allowTools = false;
         continue;
@@ -967,11 +979,7 @@ export class DocmdAssistantEngine {
         });
       }
 
-      let contextStr = toolSummaries.join('\n\n');
-      if (contextStr.length > 2800) {
-        contextStr = contextStr.slice(0, 2800) + '\n...[context truncated]';
-      }
-
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 2800);
       userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
       continue;
