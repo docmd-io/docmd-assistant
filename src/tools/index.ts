@@ -15,7 +15,11 @@ export function createStandardTools(
         },
         required: ['query']
       },
-      execute: async ({ query }: { query: string }) => {
+      execute: async (rawArgs: any) => {
+        const query = typeof rawArgs === 'string'
+          ? rawArgs
+          : (rawArgs?.query || rawArgs?.q || rawArgs?.search_query || rawArgs?.text || rawArgs?.input || '');
+
         if (customSearch) {
           try {
             return await customSearch(query);
@@ -28,7 +32,9 @@ export function createStandardTools(
         if (typeof document !== 'undefined') {
           const results: SearchResultItem[] = [];
           const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, section'));
-          const cleanQuery = query.toLowerCase();
+          const cleanQuery = (query || '').toLowerCase().trim();
+
+          if (!cleanQuery) return [];
 
           for (const el of headings) {
             const text = (el.textContent || '').trim();

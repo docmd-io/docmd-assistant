@@ -847,23 +847,39 @@ export class DocmdAssistantEngine {
 
   // --- Tool Execution Pipeline ---
 
-  public async executeTool(name: string, args: any): Promise<any> {
+  public async executeTool(name: string, rawArgs: any): Promise<any> {
     const tool = this.tools.get(name);
     if (!tool) {
-      throw new Error(`Tool "${name}" is not registered on this assistant engine.`);
+      return { error: `Tool "${name}" is not registered on this assistant engine.` };
     }
 
     const handler = tool.handler || tool.execute;
     if (!handler) {
-      throw new Error(`Tool "${name}" has no valid execution handler.`);
+      return { error: `Tool "${name}" has no valid execution handler.` };
+    }
+
+    let args = rawArgs;
+    if (typeof rawArgs === 'string') {
+      try {
+        args = JSON.parse(rawArgs);
+      } catch {
+        args = { query: rawArgs, path: rawArgs, code: rawArgs };
+      }
+    }
+    if (!args || typeof args !== 'object') {
+      args = {};
+    }
+    if (!args.query && (args.q || args.search_query || args.text || args.input || args.keyword || args.keywords)) {
+      args.query = args.q || args.search_query || args.text || args.input || args.keyword || args.keywords;
     }
 
     try {
       const result = await handler(args, { engine: this });
       return result;
     } catch (err: any) {
+      console.warn(`[docmd-assistant] Tool execution failed for "${name}":`, err);
       this.emit('error', { tool: name, error: err });
-      throw err;
+      return { error: `Tool execution failed: ${err.message || String(err)}` };
     }
   }
 }
