@@ -828,6 +828,7 @@ export class DocmdAssistantEngine {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let streamReplyText = '';
+      const sseToolCalls: any[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -851,21 +852,30 @@ export class DocmdAssistantEngine {
                 callbacks.onStatus?.(dataObj.status);
                 this.emit('status', dataObj.status);
               }
+              if (dataObj.tool_calls && Array.isArray(dataObj.tool_calls)) {
+                sseToolCalls.push(...dataObj.tool_calls);
+              }
               if (dataObj.delta) {
                 streamReplyText += dataObj.delta;
-                callbacks.onChunk?.(dataObj.delta);
-                this.emit('chunk', dataObj.delta);
+                if (!allowTools) {
+                  callbacks.onChunk?.(dataObj.delta);
+                  this.emit('chunk', dataObj.delta);
+                }
               }
               if (dataObj.text) {
                 streamReplyText = dataObj.text;
-                callbacks.onChunk?.(dataObj.text);
-                this.emit('chunk', dataObj.text);
+                if (!allowTools) {
+                  callbacks.onChunk?.(dataObj.text);
+                  this.emit('chunk', dataObj.text);
+                }
               }
             } catch {
               // Plain text stream line
               streamReplyText += dataStr;
-              callbacks.onChunk?.(dataStr);
-              this.emit('chunk', dataStr);
+              if (!allowTools) {
+                callbacks.onChunk?.(dataStr);
+                this.emit('chunk', dataStr);
+              }
             }
           }
         }
@@ -875,13 +885,81 @@ export class DocmdAssistantEngine {
         try {
           const parsedBuf = JSON.parse(buffer.trim());
           streamReplyText = parsedBuf.text || parsedBuf.reply || parsedBuf.message || buffer.trim();
+          if (parsedBuf.tool_calls && Array.isArray(parsedBuf.tool_calls)) {
+            sseToolCalls.push(...parsedBuf.tool_calls);
+          }
         } catch {
           streamReplyText = buffer.trim();
         }
       }
 
-      finalReply = parseAssistantOutput(streamReplyText).cleanText || streamReplyText;
-      break;
+      const parsed = parseAssistantOutput(streamReplyText);
+
+      const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
+      if (sseToolCalls.length > 0) {
+        for (const tc of sseToolCalls) {
+          toolCallsToExecute.push({
+            id: tc.id || `call_${Date.now()}`,
+            name: tc.name || tc.function?.name,
+            args: typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || tc.args || {})
+          });
+        }
+      } else if (parsed.extractedToolCalls.length > 0) {
+        for (const tc of parsed.extractedToolCalls) {
+          toolCallsToExecute.push({
+            id: `call_${Date.now()}`,
+            name: tc.name,
+            args: tc.args || {}
+          });
+        }
+      }
+
+      if (toolCallsToExecute.length === 0) {
+        finalReply = parsed.cleanText || streamReplyText || 'No response returned.';
+        if (allowTools) {
+          callbacks.onChunk?.(finalReply);
+          this.emit('chunk', finalReply);
+        }
+        break;
+      }
+
+      // Ensure original user question is present in history before tool logs
+      if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
+        currentHistory.push({
+          sender: 'user',
+          text: originalUserQuery
+        });
+      }
+
+      const toolSummaries: string[] = [];
+      for (const tc of toolCallsToExecute) {
+        const statusInfo = getToolStatusInfo(tc.name, tc.args);
+        callbacks.onStatus?.(statusInfo);
+        this.emit('status', statusInfo);
+
+        callbacks.onToolCall?.({ name: tc.name, args: tc.args, callId: tc.id });
+        this.emit('tool_call', { name: tc.name, args: tc.args, callId: tc.id });
+
+        const result = await this.executeTool(tc.name, tc.args);
+        callbacks.onToolResult?.({ name: tc.name, args: tc.args, result, callId: tc.id });
+        this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
+
+        const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+
+        currentHistory.push({
+          sender: 'assistant',
+          text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
+        });
+        currentHistory.push({
+          sender: 'user',
+          text: `[Tool Result for ${tc.name}]: ${resultStr}`
+        });
+      }
+
+      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${toolSummaries.join('\n\n')}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      allowTools = false;
+      continue;
     }
 
     const assistantMsg: ChatMessage = {
