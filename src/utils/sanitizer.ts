@@ -97,22 +97,11 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
     return _match;
   });
 
-  // 4. Bracket-style tool calls: [TOOL_CALL: search_documentation {"query": "..."}] or [TOOL: search_documentation(...)]
-  const bracketToolRegex = /\[(?:TOOL_CALL|TOOL|CALL|ACTION):\s*([a-zA-Z0-9_\-]+)\s*([\s\S]*?)\]/gi;
-  text = text.replace(bracketToolRegex, (_match, toolName, body) => {
-    let args: Record<string, any> = {};
-    const trimmedBody = body.trim();
-    if (trimmedBody.startsWith('{') && trimmedBody.endsWith('}')) {
-      try {
-        args = JSON.parse(trimmedBody);
-      } catch {
-        args = { query: trimmedBody };
-      }
-    } else if (trimmedBody.startsWith('(') && trimmedBody.endsWith(')')) {
-      args = parseFunctionalArgs(trimmedBody.slice(1, -1));
-    } else {
-      args = { query: trimmedBody };
-    }
+  // 4. Bracket-style tool calls: [Tool Call: search_documentation(...)], [TOOL_CALL: ...], [TOOL: ...], [CALL: ...], [ACTION: ...]
+  const bracketToolRegex = /\[?(?:TOOL[_\s]?CALL|FUNCTION[_\s]?CALL|TOOL|CALL|ACTION):\s*([a-zA-Z0-9_\-]+)\s*(?:\(([\s\S]*?)\)|(\{[\s\S]*?\})|([\s\S]*?))\]?/gi;
+  text = text.replace(bracketToolRegex, (_match, toolName, parenArgs, braceArgs, plainArgs) => {
+    const rawArgs = parenArgs !== undefined ? parenArgs : (braceArgs || plainArgs || '');
+    const args = parseFunctionalArgs(rawArgs);
     extractedToolCalls.push({ name: toolName.trim(), args });
     return '';
   });
@@ -171,6 +160,14 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
 function parseFunctionalArgs(argStr: string): Record<string, any> {
   const trimmed = argStr.trim();
   if (!trimmed) return {};
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      // continue to regex parsing if JSON.parse fails
+    }
+  }
 
   const result: Record<string, any> = {};
   // Match key="value" or key='value' or key=123 or key={...}
