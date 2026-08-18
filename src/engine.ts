@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.13';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.14';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
