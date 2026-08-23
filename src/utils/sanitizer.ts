@@ -54,39 +54,54 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
   // 2. Extract and strip Structured Tool Calls in XML / Tag format
   // Handles: <tool_call>, <function_call>, <tool>, <action>, <request>, <invoke name="...">
   const toolTagRegex = /<(?:[a-zA-Z0-9_\-]+:)?(tool_call|function_call|tool|action|request|invoke)\b([^>]*)>([\s\S]*?)<\/(?:[a-zA-Z0-9_\-]+:)?\1>/gi;
-  text = text.replace(toolTagRegex, (_match, _tag, attrs, body) => {
+  text = text.replace(toolTagRegex, (match, tag, attrs, body) => {
     // Check if tool name was specified in attributes, e.g. <invoke name="search_documentation">
     const nameMatch = attrs.match(/name=["']([^"']+)["']/i);
     if (nameMatch) {
       const toolName = nameMatch[1].trim();
+      if (!knownToolNames || knownToolNames.length === 0 || knownToolNames.includes(toolName)) {
+        let args: Record<string, any> = {};
+        try {
+          args = JSON.parse(body.trim());
+        } catch {
+          args = { query: body.trim() };
+        }
+        extractedToolCalls.push({ name: toolName, args });
+        return '';
+      }
+      return match;
+    }
+
+    const initialCount = extractedToolCalls.length;
+    tryParseToolJson(body, extractedToolCalls, knownToolNames);
+    if (extractedToolCalls.length > initialCount) {
+      return '';
+    }
+    if (tag.toLowerCase() === 'tool_call' || tag.toLowerCase() === 'function_call') {
+      return '';
+    }
+    return match;
+  });
+
+  // Handles inline tags like <function=search_documentation>{"query":"..."}</function>
+  const inlineFunctionTagRegex = /<function\s*=\s*["']?([a-zA-Z0-9_\-]+)["']?>([\s\S]*?)<\/function>/gi;
+  text = text.replace(inlineFunctionTagRegex, (match, toolName, body) => {
+    const cleanName = toolName.trim();
+    if (!knownToolNames || knownToolNames.length === 0 || knownToolNames.includes(cleanName)) {
       let args: Record<string, any> = {};
       try {
         args = JSON.parse(body.trim());
       } catch {
         args = { query: body.trim() };
       }
-      extractedToolCalls.push({ name: toolName, args });
-    } else {
-      tryParseToolJson(body, extractedToolCalls);
+      extractedToolCalls.push({ name: cleanName, args });
+      return '';
     }
-    return '';
-  });
-
-  // Handles inline tags like <function=search_documentation>{"query":"..."}</function>
-  const inlineFunctionTagRegex = /<function\s*=\s*["']?([a-zA-Z0-9_\-]+)["']?>([\s\S]*?)<\/function>/gi;
-  text = text.replace(inlineFunctionTagRegex, (_match, toolName, body) => {
-    let args: Record<string, any> = {};
-    try {
-      args = JSON.parse(body.trim());
-    } catch {
-      args = { query: body.trim() };
-    }
-    extractedToolCalls.push({ name: toolName.trim(), args });
-    return '';
+    return match;
   });
 
   // 3. Markdown codeblock tool calls: ```tool_call ... ``` or ```json:tool ... ``` or ```json with tool calls
-  const mdToolRegex = /```(?:tool_call|function_call|tool|action|json:tool|json)?\s*\n([\s\S]*?)```/gi;
+  const mdToolRegex = /```(?:tool_call|function_call|action|json:tool|json)?\s*\n([\s\S]*?)```/gi;
   text = text.replace(mdToolRegex, (_match, body) => {
     const initialCount = extractedToolCalls.length;
     tryParseToolJson(body, extractedToolCalls, knownToolNames);
@@ -98,19 +113,23 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
   });
 
   // 4. Bracket-style tool calls: [Tool Call: search_documentation(...)], [TOOL_CALL: ...], [TOOL: ...], [CALL: ...], [ACTION: ...]
-  const bracketToolRegex = /\[?(?:TOOL[_\s]?CALL|FUNCTION[_\s]?CALL|TOOL|CALL|ACTION):\s*([a-zA-Z0-9_\-]+)\s*(?:\(([\s\S]*?)\)|(\{[\s\S]*?\})|([\s\S]*?))\]?/gi;
-  text = text.replace(bracketToolRegex, (_match, toolName, parenArgs, braceArgs, plainArgs) => {
-    const rawArgs = parenArgs !== undefined ? parenArgs : (braceArgs || plainArgs || '');
-    const args = parseFunctionalArgs(rawArgs);
-    extractedToolCalls.push({ name: toolName.trim(), args });
-    return '';
+  const bracketToolRegex = /\[(?:TOOL[_\s]?CALL|FUNCTION[_\s]?CALL|TOOL|CALL|ACTION):\s*([a-zA-Z0-9_\-]+)\s*(?:\(([\s\S]*?)\)|(\{[\s\S]*?\})|([\s\S]*?))\]/gi;
+  text = text.replace(bracketToolRegex, (match, toolName, parenArgs, braceArgs, plainArgs) => {
+    const cleanName = toolName.trim();
+    if (!knownToolNames || knownToolNames.length === 0 || knownToolNames.includes(cleanName)) {
+      const rawArgs = parenArgs !== undefined ? parenArgs : (braceArgs || plainArgs || '');
+      const args = parseFunctionalArgs(rawArgs);
+      extractedToolCalls.push({ name: cleanName, args });
+      return '';
+    }
+    return match;
   });
 
   // 5. Functional invocation notation: call:search_documentation{...} or search_documentation(query="...")
   if (knownToolNames && knownToolNames.length > 0) {
     for (const toolName of knownToolNames) {
       // Functional: search_documentation({"query": "..."}) or search_documentation(query="...")
-      const funcRegex = new RegExp(`(?:call:)?\\b${toolName}\\s*\\(([\\s\\S]*?)\\)`, 'g');
+      const funcRegex = new RegExp(`(?:call:|invoke:)?\\b${toolName}\\s*\\(([\\s\\S]*?)\\)`, 'g');
       text = text.replace(funcRegex, (_match, innerArgs) => {
         let args: Record<string, any> = {};
         const trimmed = innerArgs.trim();
@@ -134,7 +153,7 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
   text = extractAndStripJsonObjects(text, extractedToolCalls, knownToolNames);
 
   // Strip any remaining dangling tool tags
-  text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|tool|action|request|invoke)\b[^>]*>/gi, '');
+  text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|invoke)\b[^>]*>/gi, '');
 
   // 7. Normalize fenced code blocks for consistent rendering
   text = text.replace(/```(\w+)(?:[ \t]+|\r?\n)?([\s\S]*?)```/g, (_match, lang, code) => {
@@ -266,27 +285,7 @@ function processParsedToolObject(
     return processParsedToolObject(parsed.function, targetArray, knownToolNames);
   }
 
-  // 4. Standard tool call object: { name: "...", arguments: ... } or { tool: "...", args: ... }
-  const name = parsed.name || parsed.tool || parsed.action || parsed.function_name;
-  let args = parsed.parameters || parsed.arguments || parsed.args || parsed.input || parsed.action_input;
-
-  if (name && typeof name === 'string') {
-    const toolName = name.trim();
-    if (typeof args === 'string') {
-      try {
-        args = JSON.parse(args);
-      } catch {
-        args = { query: args };
-      }
-    } else if (!args || typeof args !== 'object') {
-      args = {};
-    }
-
-    targetArray.push({ name: toolName, args });
-    return true;
-  }
-
-  // 5. Named key format matching a known tool: { "search_documentation": { "query": "..." } }
+  // 4. Named key format matching a known tool: { "search_documentation": { "query": "..." } }
   if (knownToolNames && knownToolNames.length > 0) {
     for (const toolName of knownToolNames) {
       if (parsed[toolName] !== undefined) {
@@ -303,6 +302,39 @@ function processParsedToolObject(
         targetArray.push({ name: toolName, args: toolArgs });
         return true;
       }
+    }
+  }
+
+  // 5. Standard tool call object: { name: "...", arguments: ... } or { tool: "...", args: ... }
+  const rawName = parsed.name || parsed.tool || parsed.action || parsed.function_name;
+  if (rawName && typeof rawName === 'string') {
+    const toolName = rawName.trim();
+
+    // If knownToolNames is provided, strictly enforce registration
+    const isKnown = knownToolNames && knownToolNames.length > 0 ? knownToolNames.includes(toolName) : false;
+
+    // If knownToolNames is not provided, require explicit tool invocation signatures
+    const hasExplicitToolSignature =
+      parsed.type === 'function' ||
+      parsed.function_name !== undefined ||
+      parsed.tool !== undefined ||
+      parsed.action_input !== undefined ||
+      (parsed.name !== undefined && (parsed.arguments !== undefined || parsed.parameters !== undefined || parsed.input !== undefined));
+
+    if (isKnown || (!knownToolNames && hasExplicitToolSignature)) {
+      let args = parsed.parameters || parsed.arguments || parsed.args || parsed.input || parsed.action_input;
+      if (typeof args === 'string') {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          args = { query: args };
+        }
+      } else if (!args || typeof args !== 'object') {
+        args = {};
+      }
+
+      targetArray.push({ name: toolName, args });
+      return true;
     }
   }
 
