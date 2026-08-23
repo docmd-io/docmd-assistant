@@ -1,6 +1,6 @@
 {
   "name": "docmd-assistant",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Universal headless AI Assistant engine with extensible tool execution and custom relay support.",
   "type": "module",
   "main": "dist/index.js",
@@ -23,6 +23,7 @@
   "scripts": {
     "build": "node build.js",
     "dev": "node build.js --watch",
+    "test": "node build.js && node tests/sanitizer.test.js",
     "typecheck": "npx tsc --noEmit",
     "clean": "rm -rf dist node_modules *.tsbuildinfo > /dev/null 2>&1 || true",
     "prep": "npm run clean && npm install --silent && npm run build"
