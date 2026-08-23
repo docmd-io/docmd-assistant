@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.14';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.15';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -338,25 +338,32 @@ export class DocmdAssistantEngine {
 
       if (res.message?.toolCalls && res.message.toolCalls.length > 0) {
         for (const tc of res.message.toolCalls) {
-          toolCallsToExecute.push({
-            id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            name: tc.name,
-            args: tc.input || {}
-          });
+          if (this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              name: tc.name,
+              args: tc.input || {}
+            });
+          }
         }
       } else if (parsed.extractedToolCalls.length > 0) {
         for (const tc of parsed.extractedToolCalls) {
-          toolCallsToExecute.push({
-            id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            name: tc.name,
-            args: tc.args || {}
-          });
+          if (this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              name: tc.name,
+              args: tc.args || {}
+            });
+          }
         }
+      }
+
+      if (parsed.cleanText || rawContent) {
+        finalReplyText = parsed.cleanText || rawContent;
       }
 
       // If no tool calls, this turn contains the final human-facing response
       if (toolCallsToExecute.length === 0) {
-        finalReplyText = parsed.cleanText || rawContent;
         break;
       }
 
@@ -471,24 +478,31 @@ export class DocmdAssistantEngine {
 
       if (res.message?.toolCalls && res.message.toolCalls.length > 0) {
         for (const tc of res.message.toolCalls) {
-          toolCallsToExecute.push({
-            id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            name: tc.name,
-            args: tc.input || {}
-          });
+          if (this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              name: tc.name,
+              args: tc.input || {}
+            });
+          }
         }
       } else if (parsed.extractedToolCalls.length > 0) {
         for (const tc of parsed.extractedToolCalls) {
-          toolCallsToExecute.push({
-            id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            name: tc.name,
-            args: tc.args || {}
-          });
+          if (this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              name: tc.name,
+              args: tc.args || {}
+            });
+          }
         }
       }
 
-      if (toolCallsToExecute.length === 0) {
+      if (parsed.cleanText || streamBuffer) {
         finalAccumulatedText = parsed.cleanText || streamBuffer;
+      }
+
+      if (toolCallsToExecute.length === 0) {
         // Stream clean final output delta to caller
         callbacks.onChunk?.(finalAccumulatedText);
         this.emit('chunk', finalAccumulatedText);
@@ -632,24 +646,31 @@ export class DocmdAssistantEngine {
         for (const tc of data.tool_calls) {
           const toolName = tc.name || tc.function?.name;
           const toolArgs = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || tc.args || {});
-          toolCallsToExecute.push({
-            id: tc.id || `call_${Date.now()}`,
-            name: toolName,
-            args: toolArgs
-          });
+          if (toolName && this.tools.has(toolName)) {
+            toolCallsToExecute.push({
+              id: tc.id || `call_${Date.now()}`,
+              name: toolName,
+              args: toolArgs
+            });
+          }
         }
       } else if (parsed.extractedToolCalls.length > 0) {
         for (const tc of parsed.extractedToolCalls) {
-          toolCallsToExecute.push({
-            id: `call_${Date.now()}`,
-            name: tc.name,
-            args: tc.args || {}
-          });
+          if (tc.name && this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: `call_${Date.now()}`,
+              name: tc.name,
+              args: tc.args || {}
+            });
+          }
         }
       }
 
+      if (parsed.cleanText || rawReply) {
+        finalReply = parsed.cleanText || rawReply;
+      }
+
       if (toolCallsToExecute.length === 0) {
-        finalReply = parsed.cleanText || rawReply || 'No response returned.';
         break;
       }
 
@@ -930,24 +951,33 @@ export class DocmdAssistantEngine {
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
       if (sseToolCalls.length > 0) {
         for (const tc of sseToolCalls) {
-          toolCallsToExecute.push({
-            id: tc.id || `call_${Date.now()}`,
-            name: tc.name || tc.function?.name,
-            args: typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || tc.args || {})
-          });
+          const toolName = tc.name || tc.function?.name;
+          const toolArgs = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || tc.args || {});
+          if (toolName && this.tools.has(toolName)) {
+            toolCallsToExecute.push({
+              id: tc.id || `call_${Date.now()}`,
+              name: toolName,
+              args: toolArgs
+            });
+          }
         }
       } else if (parsed.extractedToolCalls.length > 0) {
         for (const tc of parsed.extractedToolCalls) {
-          toolCallsToExecute.push({
-            id: `call_${Date.now()}`,
-            name: tc.name,
-            args: tc.args || {}
-          });
+          if (tc.name && this.tools.has(tc.name)) {
+            toolCallsToExecute.push({
+              id: `call_${Date.now()}`,
+              name: tc.name,
+              args: tc.args || {}
+            });
+          }
         }
       }
 
+      if (parsed.cleanText || streamReplyText) {
+        finalReply = parsed.cleanText || streamReplyText;
+      }
+
       if (toolCallsToExecute.length === 0) {
-        finalReply = parsed.cleanText || streamReplyText || 'No response returned.';
         if (allowTools) {
           callbacks.onChunk?.(finalReply);
           this.emit('chunk', finalReply);
