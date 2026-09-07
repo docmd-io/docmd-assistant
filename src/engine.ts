@@ -75,8 +75,34 @@ function getToolStatusInfo(toolName: string, args: any): StreamStatus {
       icon: 'folder-tree'
     };
   }
+  if (toolName === 'read_documentation_page') {
+    const path = args?.path || args?.url || '';
+    return {
+      text: path ? `Reading documentation: ${path}...` : 'Reading documentation...',
+      icon: 'book-open'
+    };
+  }
+  if (toolName === 'navigate_to_page') {
+    const path = args?.path || '';
+    return {
+      text: path ? `Navigating to ${path}...` : 'Navigating to page...',
+      icon: 'navigation'
+    };
+  }
+  if (toolName === 'copy_code_snippet') {
+    return {
+      text: 'Copying code snippet...',
+      icon: 'copy'
+    };
+  }
+
+  // Clean normalization for any custom or plugin tool
+  const readable = toolName
+    .replace(/^([a-z])/, (m) => m.toUpperCase())
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2');
   return {
-    text: `Running ${toolName}...`,
+    text: `${readable}...`,
     icon: 'cog'
   };
 }

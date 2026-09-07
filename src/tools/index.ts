@@ -1,5 +1,59 @@
 import { AssistantTool, SearchResultItem } from '../types.js';
 
+function extractStructuredContent(mainContent: Element): string {
+  const clone = mainContent.cloneNode(true) as HTMLElement;
+
+  // Remove non-content elements
+  const removeSelectors = 'script, style, noscript, nav, aside, footer, header, svg, .sidebar, .toc, .docmd-ai-drawer, .docmd-ai-bar, [aria-hidden="true"]';
+  clone.querySelectorAll(removeSelectors).forEach(el => el.remove());
+
+  // Preserve pre/code blocks with indentation and newlines intact
+  clone.querySelectorAll('pre').forEach((pre) => {
+    const code = pre.querySelector('code');
+    const lang = code?.className?.match(/language-([a-z0-9_-]+)/i)?.[1] || '';
+    const codeText = (code || pre).textContent || '';
+    const marker = document.createElement('div');
+    marker.textContent = `\n\n\`\`\`${lang}\n${codeText.trim()}\n\`\`\`\n\n`;
+    pre.replaceWith(marker);
+  });
+
+  // Convert headings
+  for (let lvl = 1; lvl <= 6; lvl++) {
+    const hashes = '#'.repeat(lvl);
+    clone.querySelectorAll(`h${lvl}`).forEach(h => {
+      const t = (h.textContent || '').trim();
+      if (t) {
+        const div = document.createElement('div');
+        div.textContent = `\n\n${hashes} ${t}\n\n`;
+        h.replaceWith(div);
+      }
+    });
+  }
+
+  // Convert list items
+  clone.querySelectorAll('li').forEach(li => {
+    const t = (li.textContent || '').trim();
+    if (t) {
+      const div = document.createElement('div');
+      div.textContent = `\n- ${t}`;
+      li.replaceWith(div);
+    }
+  });
+
+  // Convert paragraphs
+  clone.querySelectorAll('p').forEach(p => {
+    const t = (p.textContent || '').trim();
+    if (t) {
+      const div = document.createElement('div');
+      div.textContent = `\n\n${t}\n\n`;
+      p.replaceWith(div);
+    }
+  });
+
+  const raw = clone.textContent || '';
+  return raw.replace(/\n{3,}/g, '\n\n').trim().slice(0, 40000);
+}
+
 export function createStandardTools(
   customSearch?: (query: string) => Promise<SearchResultItem[]>,
   customReader?: (path: string) => Promise<string | { title?: string; content: string }>
@@ -112,9 +166,9 @@ export function createStandardTools(
           try {
             const res = await customReader(pagePath);
             if (typeof res === 'string') {
-              return { path: pagePath, content: res.slice(0, 3500) };
+              return { path: pagePath, content: res.slice(0, 40000) };
             }
-            return { path: pagePath, title: res.title, content: (res.content || '').slice(0, 3500) };
+            return { path: pagePath, title: res.title, content: (res.content || '').slice(0, 40000) };
           } catch (err) {
             console.warn('[docmd-assistant] Custom reader failed:', err);
           }
@@ -131,7 +185,7 @@ export function createStandardTools(
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const mainContent = doc.querySelector('main, article, [role="main"], body');
-            const text = mainContent ? (mainContent.textContent || '').replace(/\s+/g, ' ').slice(0, 3500) : '';
+            const text = mainContent ? extractStructuredContent(mainContent) : '';
             return {
               path: pagePath,
               content: text || 'Page content could not be extracted.'
