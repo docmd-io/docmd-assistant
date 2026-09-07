@@ -51,7 +51,7 @@ function extractStructuredContent(mainContent: Element): string {
   });
 
   const raw = clone.textContent || '';
-  return raw.replace(/\n{3,}/g, '\n\n').trim().slice(0, 40000);
+  return raw.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function createStandardTools(
@@ -166,9 +166,9 @@ export function createStandardTools(
           try {
             const res = await customReader(pagePath);
             if (typeof res === 'string') {
-              return { path: pagePath, content: res.slice(0, 40000) };
+              return { path: pagePath, content: res };
             }
-            return { path: pagePath, title: res.title, content: (res.content || '').slice(0, 40000) };
+            return { path: pagePath, title: res.title, content: res.content || '' };
           } catch (err) {
             console.warn('[docmd-assistant] Custom reader failed:', err);
           }

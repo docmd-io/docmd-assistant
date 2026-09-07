@@ -53,6 +53,11 @@ export interface AssistantOptions {
   reasoning?: boolean | 'none' | 'low' | 'medium' | 'high';
   /** Custom headers for relay requests */
   headers?: Record<string, string>;
+  /** Maximum characters of retrieved documentation context passed to the LLM per turn.
+   *  Default: 0 (uncapped — full content delivered for best response quality).
+   *  Set a positive number to cap context size for token optimization.
+   *  Note: Capping context may degrade response quality and completeness. */
+  contextWindow?: number;
 }
 
 export interface SearchResultItem {

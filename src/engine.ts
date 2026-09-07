@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.15';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.16';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -114,10 +114,13 @@ export class DocmdAssistantEngine {
   private systemPrompt: string;
   private listeners: Map<AssistantEventType, Set<AssistantEventListener>> = new Map();
   private isExecuting = false;
+  private contextWindow: number;
 
   constructor(options: AssistantOptions = {}) {
     this.options = { ...options };
     this.systemPrompt = options.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    // contextWindow: 0 or undefined = uncapped (200k default), positive = explicit cap
+    this.contextWindow = (options.contextWindow && options.contextWindow > 0) ? options.contextWindow : 200000;
 
     if (options.history) {
       this.history = [...options.history];
@@ -605,7 +608,8 @@ export class DocmdAssistantEngine {
       parameters: t.parameters || (t as any).schema
     }));
 
-    const originalUserQuery = this.history[this.history.length - 1]?.content || '';
+    const rawUserContent = this.history[this.history.length - 1]?.content || '';
+    const originalUserQuery = rawUserContent.replace(/\n\n\[Documentation Search Context[\s\S]*$/i, '').trim();
     let currentHistory = this.history.slice(0, -1).map(m => ({
       sender: m.sender || m.role,
       text: m.content
@@ -634,6 +638,9 @@ export class DocmdAssistantEngine {
         reasoning: reasoningVal,
         tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined
       };
+      if (turnCount > 1) {
+        payload.isToolFollowUp = true;
+      }
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
 
@@ -728,8 +735,8 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
-      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
+      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
     }
 
@@ -763,7 +770,8 @@ export class DocmdAssistantEngine {
       parameters: t.parameters || (t as any).schema
     }));
 
-    const originalUserQuery = this.history[this.history.length - 1]?.content || '';
+    const rawUserContent = this.history[this.history.length - 1]?.content || '';
+    const originalUserQuery = rawUserContent.replace(/\n\n\[Documentation Search Context[\s\S]*$/i, '').trim();
     let currentHistory = this.history.slice(0, -1).map(m => ({
       sender: m.sender || m.role,
       text: m.content
@@ -793,6 +801,9 @@ export class DocmdAssistantEngine {
         tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined,
         stream: true
       };
+      if (turnCount > 1) {
+        payload.isToolFollowUp = true;
+      }
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
 
@@ -896,8 +907,8 @@ export class DocmdAssistantEngine {
           });
         }
 
-        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
-        userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
+        userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
         allowTools = false;
         continue;
       }
@@ -1045,8 +1056,8 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), 15000);
-      userMessage = `User Question: "${originalUserQuery}"\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
+      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
+      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
       allowTools = false;
       continue;
     }
