@@ -55,17 +55,19 @@ function extractStructuredContent(mainContent: Element): string {
 }
 
 export function createStandardTools(
-  customSearch?: (query: string) => Promise<SearchResultItem[]>,
+  customSearch?: (query: string, project?: string, version?: string) => Promise<SearchResultItem[]>,
   customReader?: (path: string) => Promise<string | { title?: string; content: string }>
 ): AssistantTool[] {
   return [
     {
       name: 'search_documentation',
-      description: 'Search documentation content for answers to specific user questions.',
+      description: 'Search documentation content for answers to specific user questions. Optionally filter by version or project.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'The search query string' }
+          query: { type: 'string', description: 'The search query string' },
+          version: { type: 'string', description: 'Optional documentation version filter (e.g. "0.9.0", "0.8.0", "latest")' },
+          project: { type: 'string', description: 'Optional workspace project name or prefix filter (e.g. "/", "assistant", "search")' }
         },
         required: ['query']
       },
@@ -73,10 +75,12 @@ export function createStandardTools(
         const query = typeof rawArgs === 'string'
           ? rawArgs
           : (rawArgs?.query || rawArgs?.q || rawArgs?.search_query || rawArgs?.text || rawArgs?.input || '');
+        const project = typeof rawArgs === 'object' ? (rawArgs?.project || rawArgs?.projectFilter) : undefined;
+        const version = typeof rawArgs === 'object' ? (rawArgs?.version || rawArgs?.versionFilter) : undefined;
 
         if (customSearch) {
           try {
-            return await customSearch(query);
+            return await customSearch(query, project, version);
           } catch (err) {
             console.warn('[docmd-assistant] Custom search failed:', err);
           }
@@ -188,7 +192,7 @@ export function createStandardTools(
             const text = mainContent ? extractStructuredContent(mainContent) : '';
             return {
               path: pagePath,
-              content: text || 'Page content could not be extracted.'
+              content: text ? (text.length > 8000 ? text.slice(0, 8000) + '\n...[content capped for token economy]' : text) : 'Page content could not be extracted.'
             };
           }
         } catch (err) {

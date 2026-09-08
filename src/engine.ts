@@ -119,8 +119,8 @@ export class DocmdAssistantEngine {
   constructor(options: AssistantOptions = {}) {
     this.options = { ...options };
     this.systemPrompt = options.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    // contextWindow: 0 or undefined = uncapped (200k default), positive = explicit cap
-    this.contextWindow = (options.contextWindow && options.contextWindow > 0) ? options.contextWindow : 200000;
+    // contextWindow: 0 or undefined = uncapped (200k default), positive = explicit cap (minimum 1000)
+    this.contextWindow = (options.contextWindow && options.contextWindow >= 1000) ? options.contextWindow : 200000;
 
     if (options.history) {
       this.history = [...options.history];
@@ -644,15 +644,27 @@ export class DocmdAssistantEngine {
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
-          ...(opts.headers || {})
-        },
-        body: JSON.stringify(payload)
-      });
+      let res: Response;
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
+            ...(opts.headers || {})
+          },
+          body: JSON.stringify(payload)
+        });
+      } catch (fetchErr: any) {
+        const msg = String(fetchErr?.message || fetchErr || '');
+        if (fetchErr?.name === 'AbortError') {
+          throw new Error('Request was aborted or cancelled.');
+        }
+        if (msg.toLowerCase().includes('load failed') || msg.toLowerCase().includes('failed to fetch')) {
+          throw new Error('Network connection to AI relay failed. Please verify your connection or try again.');
+        }
+        throw fetchErr;
+      }
 
       const data = await res.json();
 
@@ -807,16 +819,28 @@ export class DocmdAssistantEngine {
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream, application/json',
-          'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
-          ...(opts.headers || {})
-        },
-        body: JSON.stringify(payload)
-      });
+      let res: Response;
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream, application/json',
+            'X-Docmd-Plugin': `docmd-assistant/${ENGINE_VERSION}`,
+            ...(opts.headers || {})
+          },
+          body: JSON.stringify(payload)
+        });
+      } catch (fetchErr: any) {
+        const msg = String(fetchErr?.message || fetchErr || '');
+        if (fetchErr?.name === 'AbortError') {
+          throw new Error('Request was aborted or cancelled.');
+        }
+        if (msg.toLowerCase().includes('load failed') || msg.toLowerCase().includes('failed to fetch')) {
+          throw new Error('Network connection to AI relay failed. Please verify your connection or try again.');
+        }
+        throw fetchErr;
+      }
 
       const contentType = res.headers.get('content-type') || '';
       const isEventStream = contentType.toLowerCase().includes('text/event-stream');
