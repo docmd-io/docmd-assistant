@@ -58,6 +58,17 @@ export interface AssistantOptions {
    *  Set a positive number to cap context size for token optimization.
    *  Note: Capping context may degrade response quality and completeness. */
   contextWindow?: number;
+  /** Output formatting preferences for Markdown responses (e.g. four-backtick code fences) */
+  outputFormat?: AssistantOutputFormatOptions;
+}
+
+export interface AssistantOutputFormatOptions {
+  /** Target backtick depth for code fences (default: 4 to avoid fence collision in markdown wrappers). */
+  codeFenceDepth?: number;
+  /** Automatically elevate fence depth if code contains inner fences matching target depth (default: true). */
+  escapeInnerFences?: boolean;
+  /** Legacy 3-backtick fence compatibility mode. If true, standard 3-backtick fences are preserved (default: false). */
+  legacyThreeFenceCompat?: boolean;
 }
 
 export interface SearchResultItem {

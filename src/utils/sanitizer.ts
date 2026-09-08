@@ -13,7 +13,20 @@ export interface ParsedAssistantOutput {
   }>;
 }
 
-export function parseAssistantOutput(raw: string, knownToolNames?: string[]): ParsedAssistantOutput {
+export interface FormatCodeFencesOptions {
+  /** Target backtick depth for code fences (default: 4 to avoid fence collision in markdown wrappers). */
+  codeFenceDepth?: number;
+  /** Automatically elevate fence depth if code contains inner fences matching target depth (default: true). */
+  escapeInnerFences?: boolean;
+  /** Legacy 3-backtick fence compatibility mode. If true, standard 3-backtick fences are preserved (default: false). */
+  legacyThreeFenceCompat?: boolean;
+}
+
+export function parseAssistantOutput(
+  raw: string,
+  knownToolNames?: string[],
+  outputFormat?: FormatCodeFencesOptions
+): ParsedAssistantOutput {
   if (!raw || typeof raw !== 'string') {
     return { cleanText: '', extractedToolCalls: [] };
   }
@@ -155,11 +168,8 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
   // Strip any remaining dangling tool tags
   text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|invoke)\b[^>]*>/gi, '');
 
-  // 7. Normalize fenced code blocks for consistent rendering
-  text = text.replace(/```(\w+)(?:[ \t]+|\r?\n)?([\s\S]*?)```/g, (_match, lang, code) => {
-    const trimmedCode = code.replace(/^\s*\n?/, '');
-    return '```' + lang + '\n' + trimmedCode + '```';
-  });
+  // 7. Format code blocks (default: 4-backtick fences to retain nested blocks and prevent collision)
+  text = formatCodeFences(text, outputFormat);
 
   let cleanText = text.trim();
   const thinking = thinkingParts.length > 0 ? thinkingParts.join('\n\n') : undefined;
@@ -410,6 +420,79 @@ function findBalancedJsonObjects(str: string): string[] {
   return results;
 }
 
-export function cleanAssistantReply(raw: string): string {
-  return parseAssistantOutput(raw).cleanText;
+export function formatCodeFences(text: string, options?: FormatCodeFencesOptions): string {
+  if (!text || typeof text !== 'string') return '';
+  const legacyCompat = options?.legacyThreeFenceCompat === true;
+  const defaultDepth = legacyCompat ? 3 : (options?.codeFenceDepth || 4);
+
+  const lines = text.split(/\r?\n/);
+  const result: string[] = [];
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+  let fenceLang = '';
+  let fenceIndent = '';
+  let fenceBuffer: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inFence) {
+      const match = line.match(/^([ \t]*)(`{3,}|~{3,})([ \t]*\S*.*)$/);
+      if (match) {
+        inFence = true;
+        fenceIndent = match[1] || '';
+        fenceChar = match[2][0];
+        fenceLen = match[2].length;
+        fenceLang = match[3].trim();
+        fenceBuffer = [];
+        continue;
+      }
+      result.push(line);
+    } else {
+      const escapedChar = fenceChar === '`' ? '\\`' : fenceChar;
+      const closeMatch = line.match(new RegExp(`^[ \\t]*${escapedChar}{${fenceLen},}[ \\t]*$`));
+      if (closeMatch) {
+        const innerContent = fenceBuffer.join('\n');
+        let targetDepth = Math.max(defaultDepth, fenceLen);
+
+        if (fenceChar === '`' && !legacyCompat && options?.escapeInnerFences !== false) {
+          const backtickMatches = innerContent.match(/`+/g) || [];
+          let maxInner = 0;
+          for (const b of backtickMatches) {
+            if (b.length > maxInner) maxInner = b.length;
+          }
+          if (maxInner >= targetDepth) {
+            targetDepth = maxInner + 1;
+          }
+        }
+
+        const outFence = fenceChar.repeat(targetDepth);
+        result.push(`${fenceIndent}${outFence}${fenceLang}`);
+        if (fenceBuffer.length > 0) {
+          result.push(innerContent);
+        }
+        result.push(`${fenceIndent}${outFence}`);
+
+        inFence = false;
+        fenceBuffer = [];
+        continue;
+      }
+      fenceBuffer.push(line);
+    }
+  }
+
+  if (inFence) {
+    const outFence = fenceChar.repeat(Math.max(defaultDepth, fenceLen));
+    result.push(`${fenceIndent}${outFence}${fenceLang}`);
+    if (fenceBuffer.length > 0) {
+      result.push(fenceBuffer.join('\n'));
+    }
+    result.push(`${fenceIndent}${outFence}`);
+  }
+
+  return result.join('\n');
+}
+
+export function cleanAssistantReply(raw: string, outputFormat?: FormatCodeFencesOptions): string {
+  return parseAssistantOutput(raw, undefined, outputFormat).cleanText;
 }

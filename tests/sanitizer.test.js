@@ -109,4 +109,72 @@ To configure docmd, edit your \`docmd.config.json\` file.`;
   assert.strictEqual(parsed.cleanText, '');
 }
 
-console.log('✅ All 8 sanitizer unit tests passed successfully!');
+// Test 9 (Issue #222): Standard 3-backtick block is upgraded to 4-backtick fence by default
+{
+  const raw = `Here is the configuration example:
+
+\`\`\`yaml
+# docmd.config.yaml
+assistant:
+  enabled: true
+\`\`\`
+
+Save this file to proceed.`;
+
+  const parsed = parseAssistantOutput(raw, knownTools);
+  assert(parsed.cleanText.includes('````yaml'), 'Should upgrade opening fence to 4 backticks');
+  assert(parsed.cleanText.includes('\n````\n'), 'Should upgrade closing fence to 4 backticks');
+  assert(parsed.cleanText.includes('assistant:\n  enabled: true'), 'Should preserve code content');
+}
+
+// Test 10 (Issue #222): Retain nested 3-backtick codeblock inside 4-backtick fence
+{
+  const raw = `Here is how to document a code block:
+
+\`\`\`\`markdown
+# Example
+\`\`\`javascript
+console.log("Hello from nested block");
+\`\`\`
+\`\`\`\`
+
+End of example.`;
+
+  const parsed = parseAssistantOutput(raw, knownTools);
+  assert(parsed.cleanText.includes('````markdown'), 'Outer block remains 4 backticks');
+  assert(parsed.cleanText.includes('```javascript\nconsole.log("Hello from nested block");\n```'), 'Nested 3-backtick block preserved completely without collision');
+}
+
+// Test 11 (Issue #222): Inner content containing 4-backticks elevates outer fence to 5-backticks
+{
+  const raw = `\`\`\`text
+Line 1: code snippet with \`\`\`\` inside
+Line 2
+\`\`\``;
+
+  const parsed = parseAssistantOutput(raw, knownTools);
+  assert(parsed.cleanText.includes('`````text'), 'Should elevate outer opening fence to 5 backticks');
+  assert(parsed.cleanText.endsWith('`````'), 'Should elevate outer closing fence to 5 backticks');
+  assert(parsed.cleanText.includes('````'), 'Should preserve inner 4-backtick sequence');
+}
+
+// Test 12 (Issue #222): legacyThreeFenceCompat preserves 3-backtick fences
+{
+  const raw = `\`\`\`json
+{ "legacy": true }
+\`\`\``;
+
+  const parsed = parseAssistantOutput(raw, knownTools, { legacyThreeFenceCompat: true });
+  assert(parsed.cleanText.startsWith('```json'), 'Should preserve 3 backticks in legacy mode');
+  assert(parsed.cleanText.endsWith('```'), 'Should close with 3 backticks in legacy mode');
+}
+
+// Test 13 (Issue #222): Inline code spans are untouched
+{
+  const raw = `Use the \`docmd build\` command and \`npm install\` to get started.`;
+
+  const parsed = parseAssistantOutput(raw, knownTools);
+  assert.strictEqual(parsed.cleanText, `Use the \`docmd build\` command and \`npm install\` to get started.`);
+}
+
+console.log('✅ All 13 sanitizer & 4-backtick code fence unit tests passed successfully!');

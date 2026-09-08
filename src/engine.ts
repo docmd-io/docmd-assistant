@@ -9,11 +9,11 @@ import {
   StreamCallbacks,
   StreamStatus
 } from './types.js';
-import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js';
+import { parseAssistantOutput, cleanAssistantReply, formatCodeFences } from './utils/sanitizer.js';
 
-export { cleanAssistantReply, parseAssistantOutput };
+export { cleanAssistantReply, parseAssistantOutput, formatCodeFences };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.17';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.18';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -37,7 +37,8 @@ CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
    - Example: For "what changed in a specific release", search the version or release keyword: search("release notes").
    - Analyze search results carefully, then synthesize your answer.
 7. HYPERLINKS & CITATIONS: Always include clickable Markdown hyperlinks \`[Page Title](path)\` in your response for referenced documentation pages.
-8. CONCISE & CLEAN OUTPUT: Keep your response clean, structured, and concise. Use valid Markdown formatting without raw unescaped HTML or script tags.`;
+8. FOUR-BACKTICK CODE FENCES: When providing code blocks, configuration files, or Markdown examples, enclose them in four-backtick fences (\`\`\`\`lang ... \`\`\`\`) rather than three, to prevent fence collision and retain nested code blocks when rendered inside Markdown containers. If the snippet itself contains four backticks, use five backticks.
+9. CONCISE & CLEAN OUTPUT: Keep your response clean, structured, and concise. Use valid Markdown formatting without raw unescaped HTML or script tags.`;
 
 function truncateContextCleanly(text: string, maxLen: number = 15000): string {
   if (!text || text.length <= maxLen) return text;
@@ -51,9 +52,9 @@ function truncateContextCleanly(text: string, maxLen: number = 15000): string {
       sliced = sliced.slice(0, lastNL);
     }
   }
-  const codeFenceCount = (sliced.match(/```/g) || []).length;
+  const codeFenceCount = (sliced.match(/(?:`{3,}|~{3,})/g) || []).length;
   if (codeFenceCount % 2 !== 0) {
-    sliced += '\n```';
+    sliced += '\n````';
   }
   return sliced + '\n...[context truncated]';
 }
@@ -357,7 +358,7 @@ export class DocmdAssistantEngine {
       const res = await adapter.converse(conversationMessages, toolsDef.length > 0 ? toolsDef : undefined);
 
       const rawContent = res.message?.content || '';
-      const parsed = parseAssistantOutput(rawContent, this.getTools().map(t => t.name));
+      const parsed = parseAssistantOutput(rawContent, this.getTools().map(t => t.name), this.options.outputFormat);
 
       // Collect structured tool calls from adapter OR text-parsed tool calls
       const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
@@ -497,7 +498,7 @@ export class DocmdAssistantEngine {
         }
       );
 
-      const parsed = parseAssistantOutput(streamBuffer, this.getTools().map(t => t.name));
+      const parsed = parseAssistantOutput(streamBuffer, this.getTools().map(t => t.name), this.options.outputFormat);
 
       // Check for tool calls
       const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
@@ -680,7 +681,7 @@ export class DocmdAssistantEngine {
       }
 
       const rawReply = data.text || data.reply || data.response || data.message || '';
-      const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
+      const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name), this.options.outputFormat);
 
       // Collect tool calls from structured data.tool_calls OR text parsing
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
@@ -866,7 +867,7 @@ export class DocmdAssistantEngine {
         }
 
         const rawReply = data.text || data.reply || data.response || data.message || '';
-        const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
+        const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name), this.options.outputFormat);
 
         const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
         if (data.tool_calls && Array.isArray(data.tool_calls) && data.tool_calls.length > 0) {
@@ -1004,7 +1005,7 @@ export class DocmdAssistantEngine {
         }
       }
 
-      const parsed = parseAssistantOutput(streamReplyText, registeredTools.map(t => t.name));
+      const parsed = parseAssistantOutput(streamReplyText, registeredTools.map(t => t.name), this.options.outputFormat);
 
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
       if (sseToolCalls.length > 0) {
