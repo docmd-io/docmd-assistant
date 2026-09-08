@@ -109,7 +109,7 @@ To configure docmd, edit your \`docmd.config.json\` file.`;
   assert.strictEqual(parsed.cleanText, '');
 }
 
-// Test 9 (Issue #222): Standard 3-backtick block is upgraded to 4-backtick fence by default
+// Test 9: Standard 3-backtick block is upgraded to 4-backtick fence by default
 {
   const raw = `Here is the configuration example:
 
@@ -127,7 +127,7 @@ Save this file to proceed.`;
   assert(parsed.cleanText.includes('assistant:\n  enabled: true'), 'Should preserve code content');
 }
 
-// Test 10 (Issue #222): Retain nested 3-backtick codeblock inside 4-backtick fence
+// Test 10: Retain nested 3-backtick codeblock inside 4-backtick fence
 {
   const raw = `Here is how to document a code block:
 
@@ -145,7 +145,7 @@ End of example.`;
   assert(parsed.cleanText.includes('```javascript\nconsole.log("Hello from nested block");\n```'), 'Nested 3-backtick block preserved completely without collision');
 }
 
-// Test 11 (Issue #222): Inner content containing 4-backticks elevates outer fence to 5-backticks
+// Test 11: Inner content containing 4-backticks elevates outer fence to 5-backticks
 {
   const raw = `\`\`\`text
 Line 1: code snippet with \`\`\`\` inside
@@ -170,7 +170,7 @@ pnpm test
   assert(parsed.cleanText.endsWith('````'), 'Code block closes with 4 backticks');
 }
 
-// Test 13 (Issue #222): Inline code spans are untouched
+// Test 13: Inline code spans are untouched
 {
   const raw = `Use the \`docmd build\` command and \`npm install\` to get started.`;
 
