@@ -13,20 +13,7 @@ export interface ParsedAssistantOutput {
   }>;
 }
 
-export interface FormatCodeFencesOptions {
-  /** Target backtick depth for code fences (default: 4 to avoid fence collision in markdown wrappers). */
-  codeFenceDepth?: number;
-  /** Automatically elevate fence depth if code contains inner fences matching target depth (default: true). */
-  escapeInnerFences?: boolean;
-  /** Legacy 3-backtick fence compatibility mode. If true, standard 3-backtick fences are preserved (default: false). */
-  legacyThreeFenceCompat?: boolean;
-}
-
-export function parseAssistantOutput(
-  raw: string,
-  knownToolNames?: string[],
-  outputFormat?: FormatCodeFencesOptions
-): ParsedAssistantOutput {
+export function parseAssistantOutput(raw: string, knownToolNames?: string[]): ParsedAssistantOutput {
   if (!raw || typeof raw !== 'string') {
     return { cleanText: '', extractedToolCalls: [] };
   }
@@ -168,8 +155,8 @@ export function parseAssistantOutput(
   // Strip any remaining dangling tool tags
   text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|invoke)\b[^>]*>/gi, '');
 
-  // 7. Format code blocks (default: 4-backtick fences to retain nested blocks and prevent collision)
-  text = formatCodeFences(text, outputFormat);
+  // 7. Format code blocks (universal 4-backtick fences to retain nested blocks and prevent collision)
+  text = formatCodeFences(text);
 
   let cleanText = text.trim();
   const thinking = thinkingParts.length > 0 ? thinkingParts.join('\n\n') : undefined;
@@ -420,10 +407,9 @@ function findBalancedJsonObjects(str: string): string[] {
   return results;
 }
 
-export function formatCodeFences(text: string, options?: FormatCodeFencesOptions): string {
+export function formatCodeFences(text: string): string {
   if (!text || typeof text !== 'string') return '';
-  const legacyCompat = options?.legacyThreeFenceCompat === true;
-  const defaultDepth = legacyCompat ? 3 : (options?.codeFenceDepth || 4);
+  const defaultDepth = 4;
 
   const lines = text.split(/\r?\n/);
   const result: string[] = [];
@@ -455,7 +441,7 @@ export function formatCodeFences(text: string, options?: FormatCodeFencesOptions
         const innerContent = fenceBuffer.join('\n');
         let targetDepth = Math.max(defaultDepth, fenceLen);
 
-        if (fenceChar === '`' && !legacyCompat && options?.escapeInnerFences !== false) {
+        if (fenceChar === '`') {
           const backtickMatches = innerContent.match(/`+/g) || [];
           let maxInner = 0;
           for (const b of backtickMatches) {
@@ -493,6 +479,6 @@ export function formatCodeFences(text: string, options?: FormatCodeFencesOptions
   return result.join('\n');
 }
 
-export function cleanAssistantReply(raw: string, outputFormat?: FormatCodeFencesOptions): string {
-  return parseAssistantOutput(raw, undefined, outputFormat).cleanText;
+export function cleanAssistantReply(raw: string): string {
+  return parseAssistantOutput(raw).cleanText;
 }

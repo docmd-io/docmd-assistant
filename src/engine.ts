@@ -358,7 +358,7 @@ export class DocmdAssistantEngine {
       const res = await adapter.converse(conversationMessages, toolsDef.length > 0 ? toolsDef : undefined);
 
       const rawContent = res.message?.content || '';
-      const parsed = parseAssistantOutput(rawContent, this.getTools().map(t => t.name), this.options.outputFormat);
+      const parsed = parseAssistantOutput(rawContent, this.getTools().map(t => t.name));
 
       // Collect structured tool calls from adapter OR text-parsed tool calls
       const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
@@ -498,7 +498,7 @@ export class DocmdAssistantEngine {
         }
       );
 
-      const parsed = parseAssistantOutput(streamBuffer, this.getTools().map(t => t.name), this.options.outputFormat);
+      const parsed = parseAssistantOutput(streamBuffer, this.getTools().map(t => t.name));
 
       // Check for tool calls
       const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
@@ -681,7 +681,7 @@ export class DocmdAssistantEngine {
       }
 
       const rawReply = data.text || data.reply || data.response || data.message || '';
-      const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name), this.options.outputFormat);
+      const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
 
       // Collect tool calls from structured data.tool_calls OR text parsing
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
@@ -867,7 +867,7 @@ export class DocmdAssistantEngine {
         }
 
         const rawReply = data.text || data.reply || data.response || data.message || '';
-        const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name), this.options.outputFormat);
+        const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
 
         const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
         if (data.tool_calls && Array.isArray(data.tool_calls) && data.tool_calls.length > 0) {
@@ -1005,7 +1005,7 @@ export class DocmdAssistantEngine {
         }
       }
 
-      const parsed = parseAssistantOutput(streamReplyText, registeredTools.map(t => t.name), this.options.outputFormat);
+      const parsed = parseAssistantOutput(streamReplyText, registeredTools.map(t => t.name));
 
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
       if (sseToolCalls.length > 0) {

@@ -158,15 +158,16 @@ Line 2
   assert(parsed.cleanText.includes('````'), 'Should preserve inner 4-backtick sequence');
 }
 
-// Test 12 (Issue #222): legacyThreeFenceCompat preserves 3-backtick fences
+// Test 12: Standard code block always uses 4 backticks
 {
-  const raw = `\`\`\`json
-{ "legacy": true }
+  const raw = `\`\`\`bash
+# Run command
+pnpm test
 \`\`\``;
 
-  const parsed = parseAssistantOutput(raw, knownTools, { legacyThreeFenceCompat: true });
-  assert(parsed.cleanText.startsWith('```json'), 'Should preserve 3 backticks in legacy mode');
-  assert(parsed.cleanText.endsWith('```'), 'Should close with 3 backticks in legacy mode');
+  const parsed = parseAssistantOutput(raw, knownTools);
+  assert(parsed.cleanText.startsWith('````bash'), 'Code block uses 4 backticks');
+  assert(parsed.cleanText.endsWith('````'), 'Code block closes with 4 backticks');
 }
 
 // Test 13 (Issue #222): Inline code spans are untouched
