@@ -9,11 +9,11 @@ import {
   StreamCallbacks,
   StreamStatus
 } from './types.js';
-import { parseAssistantOutput, cleanAssistantReply, formatCodeFences } from './utils/sanitizer.js';
+import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js';
 
-export { cleanAssistantReply, parseAssistantOutput, formatCodeFences };
+export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.18';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.17';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 

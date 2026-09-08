@@ -109,7 +109,7 @@ To configure docmd, edit your \`docmd.config.json\` file.`;
   assert.strictEqual(parsed.cleanText, '');
 }
 
-// Test 9: Standard 3-backtick block is upgraded to 4-backtick fence by default
+// Test 9: Standard 3-backtick block is preserved without forced conversion
 {
   const raw = `Here is the configuration example:
 
@@ -122,12 +122,12 @@ assistant:
 Save this file to proceed.`;
 
   const parsed = parseAssistantOutput(raw, knownTools);
-  assert(parsed.cleanText.includes('````yaml'), 'Should upgrade opening fence to 4 backticks');
-  assert(parsed.cleanText.includes('\n````\n'), 'Should upgrade closing fence to 4 backticks');
+  assert(parsed.cleanText.includes('```yaml'), 'Should preserve original 3-backtick fence');
+  assert(parsed.cleanText.includes('\n```\n'), 'Should close with 3-backtick fence');
   assert(parsed.cleanText.includes('assistant:\n  enabled: true'), 'Should preserve code content');
 }
 
-// Test 10: Retain nested 3-backtick codeblock inside 4-backtick fence
+// Test 10: Retain 4-backtick fence with nested 3-backtick codeblock emitted by AI
 {
   const raw = `Here is how to document a code block:
 
@@ -141,36 +141,11 @@ console.log("Hello from nested block");
 End of example.`;
 
   const parsed = parseAssistantOutput(raw, knownTools);
-  assert(parsed.cleanText.includes('````markdown'), 'Outer block remains 4 backticks');
+  assert(parsed.cleanText.includes('````markdown'), 'Outer 4-backtick fence preserved');
   assert(parsed.cleanText.includes('```javascript\nconsole.log("Hello from nested block");\n```'), 'Nested 3-backtick block preserved completely without collision');
 }
 
-// Test 11: Inner content containing 4-backticks elevates outer fence to 5-backticks
-{
-  const raw = `\`\`\`text
-Line 1: code snippet with \`\`\`\` inside
-Line 2
-\`\`\``;
-
-  const parsed = parseAssistantOutput(raw, knownTools);
-  assert(parsed.cleanText.includes('`````text'), 'Should elevate outer opening fence to 5 backticks');
-  assert(parsed.cleanText.endsWith('`````'), 'Should elevate outer closing fence to 5 backticks');
-  assert(parsed.cleanText.includes('````'), 'Should preserve inner 4-backtick sequence');
-}
-
-// Test 12: Standard code block always uses 4 backticks
-{
-  const raw = `\`\`\`bash
-# Run command
-pnpm test
-\`\`\``;
-
-  const parsed = parseAssistantOutput(raw, knownTools);
-  assert(parsed.cleanText.startsWith('````bash'), 'Code block uses 4 backticks');
-  assert(parsed.cleanText.endsWith('````'), 'Code block closes with 4 backticks');
-}
-
-// Test 13: Inline code spans are untouched
+// Test 11: Inline code spans are untouched
 {
   const raw = `Use the \`docmd build\` command and \`npm install\` to get started.`;
 
@@ -178,4 +153,4 @@ pnpm test
   assert.strictEqual(parsed.cleanText, `Use the \`docmd build\` command and \`npm install\` to get started.`);
 }
 
-console.log('✅ All 13 sanitizer & 4-backtick code fence unit tests passed successfully!');
+console.log('✅ All 11 sanitizer unit tests passed successfully!');

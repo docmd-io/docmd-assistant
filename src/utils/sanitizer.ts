@@ -155,8 +155,11 @@ export function parseAssistantOutput(raw: string, knownToolNames?: string[]): Pa
   // Strip any remaining dangling tool tags
   text = text.replace(/<\/?(?:[a-zA-Z0-9_\-]+:)?(?:tool_call|function_call|invoke)\b[^>]*>/gi, '');
 
-  // 7. Format code blocks (universal 4-backtick fences to retain nested blocks and prevent collision)
-  text = formatCodeFences(text);
+  // 7. Normalize fenced code blocks for consistent rendering without altering fence style
+  text = text.replace(/(`{3,}|~{3,})(\w+)(?:[ \t]+|\r?\n)?([\s\S]*?)\1/g, (_match, fence, lang, code) => {
+    const trimmedCode = code.replace(/^\s*\n?/, '');
+    return fence + lang + '\n' + trimmedCode + fence;
+  });
 
   let cleanText = text.trim();
   const thinking = thinkingParts.length > 0 ? thinkingParts.join('\n\n') : undefined;
@@ -405,78 +408,6 @@ function findBalancedJsonObjects(str: string): string[] {
   }
 
   return results;
-}
-
-export function formatCodeFences(text: string): string {
-  if (!text || typeof text !== 'string') return '';
-  const defaultDepth = 4;
-
-  const lines = text.split(/\r?\n/);
-  const result: string[] = [];
-  let inFence = false;
-  let fenceChar = '';
-  let fenceLen = 0;
-  let fenceLang = '';
-  let fenceIndent = '';
-  let fenceBuffer: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!inFence) {
-      const match = line.match(/^([ \t]*)(`{3,}|~{3,})([ \t]*\S*.*)$/);
-      if (match) {
-        inFence = true;
-        fenceIndent = match[1] || '';
-        fenceChar = match[2][0];
-        fenceLen = match[2].length;
-        fenceLang = match[3].trim();
-        fenceBuffer = [];
-        continue;
-      }
-      result.push(line);
-    } else {
-      const escapedChar = fenceChar === '`' ? '\\`' : fenceChar;
-      const closeMatch = line.match(new RegExp(`^[ \\t]*${escapedChar}{${fenceLen},}[ \\t]*$`));
-      if (closeMatch) {
-        const innerContent = fenceBuffer.join('\n');
-        let targetDepth = Math.max(defaultDepth, fenceLen);
-
-        if (fenceChar === '`') {
-          const backtickMatches = innerContent.match(/`+/g) || [];
-          let maxInner = 0;
-          for (const b of backtickMatches) {
-            if (b.length > maxInner) maxInner = b.length;
-          }
-          if (maxInner >= targetDepth) {
-            targetDepth = maxInner + 1;
-          }
-        }
-
-        const outFence = fenceChar.repeat(targetDepth);
-        result.push(`${fenceIndent}${outFence}${fenceLang}`);
-        if (fenceBuffer.length > 0) {
-          result.push(innerContent);
-        }
-        result.push(`${fenceIndent}${outFence}`);
-
-        inFence = false;
-        fenceBuffer = [];
-        continue;
-      }
-      fenceBuffer.push(line);
-    }
-  }
-
-  if (inFence) {
-    const outFence = fenceChar.repeat(Math.max(defaultDepth, fenceLen));
-    result.push(`${fenceIndent}${outFence}${fenceLang}`);
-    if (fenceBuffer.length > 0) {
-      result.push(fenceBuffer.join('\n'));
-    }
-    result.push(`${fenceIndent}${outFence}`);
-  }
-
-  return result.join('\n');
 }
 
 export function cleanAssistantReply(raw: string): string {
