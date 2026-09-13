@@ -108,8 +108,8 @@ export interface StreamStatus {
 export interface StreamCallbacks {
   /** Emitted when assistant status changes (e.g. Thinking, Searching documentation) */
   onStatus?: (status: StreamStatus) => void;
-  /** Emitted as live token deltas arrive from the LLM */
-  onChunk?: (delta: string) => void;
+  /** Emitted as live token deltas arrive from the LLM, or when live response is edited/replaced */
+  onChunk?: (delta: string, meta?: { replace?: boolean; turn?: number; isFinal?: boolean }) => void;
   /** Emitted when a tool invocation begins */
   onToolCall?: (data: { name: string; args: any; callId?: string }) => void;
   /** Emitted when a tool execution produces results */

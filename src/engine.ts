@@ -20,15 +20,17 @@ export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional
 CRITICAL CONSTRAINTS & BEHAVIORAL RULES:
 1. IDENTITY: Your name is "docmd assistant". You are an expert AI documentation guide dedicated to assisting visitors with this site. If asked who or what you are, identify yourself as docmd assistant serving this documentation.
 2. STRICT SCOPE & BOUNDARIES: Answer strictly about the software, APIs, tools, installation, configuration, and topics documented on this site. Politely decline off-topic queries.
-3. STRICT FACTUALITY & ZERO FABRICATION:
+3. STRICT FACTUALITY & ARCHITECTURAL SYNTHESIS:
    - Ground all answers, configuration snippets, and code examples STRICTLY in facts, keys, properties, and evidence explicitly retrieved from documentation search results or site tools.
    - NEVER invent, guess, or fabricate non-existent configurations, non-existent API parameters, or unverified settings.
-   - If documentation results do not evidence a specific setting, state what is verified and do not invent hypothetical JSON shapes.
+   - When a user asks about a capability or concept that is not directly available as a single dedicated setting (e.g. pinning an item, custom database auth, etc.), explicitly explain that no dedicated setting exists for that exact query, synthesize the closest supported mechanism or architectural approach (such as explicit navigation configuration via navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages.
+   - Never return an empty response, silence, or thought-only output. Always provide an informative, grounded answer to the user.
 4. PROFESSIONAL & CONCISE: Provide direct, succinct, and professional answers. Do NOT use excessive emojis. Avoid conversational filler or boilerplate apologies. Get straight to the point.
 5. AUTONOMOUS & PROACTIVE TOOL EXECUTION:
    - Always use your tools proactively. Directly execute the appropriate tool (\`search_documentation\`, \`get_site_structure\`, or \`read_documentation_page\`) to retrieve accurate facts before answering.
    - Use \`get_site_structure\` to inspect site topology, available documentation branches, and navigation trees.
    - Use \`search_documentation\` to search release notes, guides, configuration options, and concepts across all projects.
+   - If initial search results are inconclusive or return no direct matches, use \`get_site_structure\` or an alternate search before concluding.
    - Use \`read_documentation_page\` when you need full section context or deep code examples.
 6. SEARCH STRATEGY — THIS IS CRITICAL:
    - The search index matches keywords against page titles, headers, and content.
@@ -482,19 +484,31 @@ export class DocmdAssistantEngine {
       });
     }
 
-    const maxTurns = 5;
+    const maxTurns = 6;
     let turnCount = 0;
     let finalAccumulatedText = '';
 
     while (turnCount < maxTurns) {
       turnCount++;
       let streamBuffer = '';
+      let turnDeltaCount = 0;
+
+      const allowToolsThisTurn = turnCount < maxTurns;
+      const toolsToPass = (allowToolsThisTurn && toolsDef.length > 0) ? toolsDef : undefined;
 
       const res = await adapter.converseStream!(
         conversationMessages,
-        toolsDef.length > 0 ? toolsDef : undefined,
+        toolsToPass,
         (delta: string) => {
           streamBuffer += delta;
+          const isFirst = turnDeltaCount === 0;
+          turnDeltaCount++;
+          callbacks.onChunk?.(delta, {
+            replace: isFirst && turnCount > 1,
+            turn: turnCount,
+            isFinal: false
+          });
+          this.emit('chunk', delta);
         }
       );
 
@@ -503,7 +517,7 @@ export class DocmdAssistantEngine {
       // Check for tool calls
       const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
 
-      if (res.message?.toolCalls && res.message.toolCalls.length > 0) {
+      if (allowToolsThisTurn && res.message?.toolCalls && res.message.toolCalls.length > 0) {
         for (const tc of res.message.toolCalls) {
           if (this.tools.has(tc.name)) {
             toolCallsToExecute.push({
@@ -513,7 +527,7 @@ export class DocmdAssistantEngine {
             });
           }
         }
-      } else if (parsed.extractedToolCalls.length > 0) {
+      } else if (allowToolsThisTurn && parsed.extractedToolCalls.length > 0) {
         for (const tc of parsed.extractedToolCalls) {
           if (this.tools.has(tc.name)) {
             toolCallsToExecute.push({
@@ -530,8 +544,12 @@ export class DocmdAssistantEngine {
       }
 
       if (toolCallsToExecute.length === 0) {
-        // Stream clean final output delta to caller
-        callbacks.onChunk?.(finalAccumulatedText);
+        // Stream clean final output to caller with full replacement
+        callbacks.onChunk?.(finalAccumulatedText, {
+          replace: true,
+          turn: turnCount,
+          isFinal: true
+        });
         this.emit('chunk', finalAccumulatedText);
         break;
       }
@@ -621,6 +639,8 @@ export class DocmdAssistantEngine {
     const maxTurns = 5;
     let turnCount = 0;
     let finalReply = '';
+    const accumulatedToolSummaries: string[] = [];
+    let lastParsed: any = null;
 
     while (turnCount < maxTurns) {
       turnCount++;
@@ -682,6 +702,7 @@ export class DocmdAssistantEngine {
 
       const rawReply = data.text || data.reply || data.response || data.message || '';
       const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
+      lastParsed = parsed;
 
       // Collect tool calls from structured data.tool_calls OR text parsing
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
@@ -726,14 +747,13 @@ export class DocmdAssistantEngine {
       }
 
       // Execute tool calls locally and build synthesis context
-      const toolSummaries: string[] = [];
       for (const tc of toolCallsToExecute) {
         this.emit('tool_call', { name: tc.name, args: tc.args, callId: tc.id });
         const result = await this.executeTool(tc.name, tc.args);
         this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+        accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
         currentHistory.push({
           sender: 'assistant',
@@ -745,9 +765,19 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
-      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
-      allowTools = false;
+      const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.`;
+      if (turnCount >= 2) {
+        allowTools = false;
+      }
+    }
+
+    if (!finalReply || !finalReply.trim()) {
+      if (lastParsed?.thinking && lastParsed.thinking.trim().length > 20) {
+        finalReply = lastParsed.thinking.trim();
+      } else {
+        finalReply = `No documentation page in the retrieved search results explicitly covers a dedicated setting for "${originalUserQuery}". You can configure or customize this behavior via site navigation structure or [Project Structure](https://docs.docmd.io/getting-started/project-structure/).`;
+      }
     }
 
     const assistantMsg: ChatMessage = {
@@ -792,12 +822,15 @@ export class DocmdAssistantEngine {
 
     let userMessage = originalUserQuery;
     let allowTools = true;
-    const maxTurns = 5;
+    const maxTurns = 6;
     let turnCount = 0;
     let finalReply = '';
+    const accumulatedToolSummaries: string[] = [];
+    let lastParsed: any = null;
 
     while (turnCount < maxTurns) {
       turnCount++;
+      let turnDeltaCount = 0;
 
       const payload: Record<string, any> = {
         projectId: opts.projectId,
@@ -868,6 +901,7 @@ export class DocmdAssistantEngine {
 
         const rawReply = data.text || data.reply || data.response || data.message || '';
         const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
+        lastParsed = parsed;
 
         const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
         if (data.tool_calls && Array.isArray(data.tool_calls) && data.tool_calls.length > 0) {
@@ -890,7 +924,7 @@ export class DocmdAssistantEngine {
 
         if (toolCallsToExecute.length === 0) {
           finalReply = parsed.cleanText || rawReply || 'No response returned.';
-          callbacks.onChunk?.(finalReply);
+          callbacks.onChunk?.(finalReply, { replace: turnCount > 1, turn: turnCount, isFinal: true });
           this.emit('chunk', finalReply);
           break;
         }
@@ -903,7 +937,6 @@ export class DocmdAssistantEngine {
           });
         }
 
-        const toolSummaries: string[] = [];
         for (const tc of toolCallsToExecute) {
           const statusInfo = getToolStatusInfo(tc.name, tc.args);
           callbacks.onStatus?.(statusInfo);
@@ -917,7 +950,7 @@ export class DocmdAssistantEngine {
           this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
           const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-          toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+          accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
           currentHistory.push({
             sender: 'assistant',
@@ -929,9 +962,11 @@ export class DocmdAssistantEngine {
           });
         }
 
-        const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
-        userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
-        allowTools = false;
+        const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+        userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.${turnCount >= maxTurns - 1 ? '\n\nYou must now synthesize your complete, final response based on all information retrieved. Do not call any further tools.' : ''}`;
+        if (turnCount >= maxTurns - 1) {
+          allowTools = false;
+        }
         continue;
       }
 
@@ -969,25 +1004,35 @@ export class DocmdAssistantEngine {
               }
               if (dataObj.delta) {
                 streamReplyText += dataObj.delta;
-                if (!allowTools) {
-                  callbacks.onChunk?.(dataObj.delta);
-                  this.emit('chunk', dataObj.delta);
-                }
+                const isFirst = turnDeltaCount === 0;
+                turnDeltaCount++;
+                callbacks.onChunk?.(dataObj.delta, {
+                  replace: isFirst && turnCount > 1,
+                  turn: turnCount,
+                  isFinal: false
+                });
+                this.emit('chunk', dataObj.delta);
               }
               if (dataObj.text) {
                 streamReplyText = dataObj.text;
-                if (!allowTools) {
-                  callbacks.onChunk?.(dataObj.text);
-                  this.emit('chunk', dataObj.text);
-                }
+                callbacks.onChunk?.(dataObj.text, {
+                  replace: true,
+                  turn: turnCount,
+                  isFinal: false
+                });
+                this.emit('chunk', dataObj.text);
               }
             } catch {
               // Plain text stream line
               streamReplyText += dataStr;
-              if (!allowTools) {
-                callbacks.onChunk?.(dataStr);
-                this.emit('chunk', dataStr);
-              }
+              const isFirst = turnDeltaCount === 0;
+              turnDeltaCount++;
+              callbacks.onChunk?.(dataStr, {
+                replace: isFirst && turnCount > 1,
+                turn: turnCount,
+                isFinal: false
+              });
+              this.emit('chunk', dataStr);
             }
           }
         }
@@ -1006,6 +1051,7 @@ export class DocmdAssistantEngine {
       }
 
       const parsed = parseAssistantOutput(streamReplyText, registeredTools.map(t => t.name));
+      lastParsed = parsed;
 
       const toolCallsToExecute: Array<{ id: string; name: string; args: any }> = [];
       if (sseToolCalls.length > 0) {
@@ -1037,10 +1083,12 @@ export class DocmdAssistantEngine {
       }
 
       if (toolCallsToExecute.length === 0) {
-        if (allowTools) {
-          callbacks.onChunk?.(finalReply);
-          this.emit('chunk', finalReply);
-        }
+        callbacks.onChunk?.(finalReply, {
+          replace: true,
+          turn: turnCount,
+          isFinal: true
+        });
+        this.emit('chunk', finalReply);
         break;
       }
 
@@ -1052,7 +1100,6 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const toolSummaries: string[] = [];
       for (const tc of toolCallsToExecute) {
         const statusInfo = getToolStatusInfo(tc.name, tc.args);
         callbacks.onStatus?.(statusInfo);
@@ -1066,7 +1113,7 @@ export class DocmdAssistantEngine {
         this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        toolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
+        accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
         currentHistory.push({
           sender: 'assistant',
@@ -1078,10 +1125,24 @@ export class DocmdAssistantEngine {
         });
       }
 
-      const contextStr = truncateContextCleanly(toolSummaries.join('\n\n'), this.contextWindow);
-      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased strictly on the documentation search results above, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. Do not repeat introductory greetings.`;
-      allowTools = false;
+      const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.${turnCount >= maxTurns - 1 ? '\n\nYou must now synthesize your complete, final response based on all information retrieved. Do not call any further tools.' : ''}`;
+      if (turnCount >= maxTurns - 1) {
+        allowTools = false;
+      }
       continue;
+    }
+
+    if (!finalReply || !finalReply.trim()) {
+      if (lastParsed?.thinking && lastParsed.thinking.trim().length > 20) {
+        finalReply = lastParsed.thinking.trim();
+      } else if (accumulatedToolSummaries.length > 0) {
+        finalReply = `Based on the search results in the documentation, no dedicated setting explicitly matches "${originalUserQuery}". You can configure structure and navigation through [Project Structure](https://docs.docmd.io/getting-started/project-structure/) or your site configuration.`;
+      } else {
+        finalReply = `No documentation page in the retrieved search results explicitly covers a dedicated setting for "${originalUserQuery}". You can configure or customize this behavior via site navigation structure or [Project Structure](https://docs.docmd.io/getting-started/project-structure/).`;
+      }
+      callbacks.onChunk?.(finalReply, { replace: true, turn: turnCount, isFinal: true });
+      this.emit('chunk', finalReply);
     }
 
     const assistantMsg: ChatMessage = {
