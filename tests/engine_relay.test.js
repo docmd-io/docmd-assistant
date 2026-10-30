@@ -191,6 +191,92 @@ try {
     console.log('✅ Test 4 Passed: Pure empty response triggers informative fallback');
   }
 
+  // Test 5: Extended API hooks (formatToolResult, compactHistory, transformContext, onPayload)
+  {
+    recordedRequests = [];
+    mockResponses = [
+      {
+        tool_calls: [
+          {
+            id: 'call_hook_1',
+            name: 'get_site_structure',
+            arguments: '{}'
+          }
+        ]
+      },
+      {
+        text: 'Hook test verified response.'
+      }
+    ];
+
+    let formatToolCalled = false;
+    let transformContextCalled = false;
+    let compactHistoryCalled = false;
+    let onPayloadCalled = false;
+
+    const engine = new DocmdAssistantEngine({
+      endpoint,
+      projectId: 'test-project',
+      formatToolResult: (name, args, result) => {
+        formatToolCalled = true;
+        return `[CustomSummary]: ${result.summary}`;
+      },
+      compactHistory: (hist) => {
+        compactHistoryCalled = true;
+        return hist;
+      },
+      transformContext: (ctx) => {
+        transformContextCalled = true;
+        return `[Transformed]: ${ctx}`;
+      },
+      onPayload: (payload) => {
+        onPayloadCalled = true;
+        payload.customTag = 'verified';
+      }
+    });
+
+    engine.registerTool({
+      name: 'get_site_structure',
+      description: 'Site structure',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => ({ summary: '2 versions, 5 projects' })
+    });
+
+    const res = await engine.sendMessage('Tell me about site structure');
+    assert(formatToolCalled, 'formatToolResult hook must be called');
+    assert(transformContextCalled, 'transformContext hook must be called');
+    assert(onPayloadCalled, 'onPayload hook must be called');
+    assert.strictEqual(recordedRequests[0].customTag, 'verified', 'onPayload must mutate payload');
+    assert(recordedRequests[1].message.includes('[Transformed]:'), 'transformContext must apply to follow-up prompt');
+    assert(recordedRequests[1].message.includes('[CustomSummary]: 2 versions, 5 projects'), 'formatToolResult must format tool output in context');
+    console.log('✅ Test 5 Passed: Extended API hooks (formatToolResult, transformContext, onPayload) executed successfully');
+  }
+
+  // Test 6: History rollback on network / relay failure
+  {
+    recordedRequests = [];
+    mockResponses = [
+      { error: 'Simulated relay rejection' }
+    ];
+
+    const engine = new DocmdAssistantEngine({
+      endpoint,
+      projectId: 'test-project'
+    });
+
+    const initialHistoryLength = engine.getHistory().length;
+    let threw = false;
+    try {
+      await engine.sendMessage('This query will fail');
+    } catch (e) {
+      threw = true;
+      assert(e.message.includes('Simulated relay rejection'), 'Should throw relay error');
+    }
+    assert(threw, 'Engine must throw on relay rejection');
+    assert.strictEqual(engine.getHistory().length, initialHistoryLength, 'Dangling user message must be rolled back on error');
+    console.log('✅ Test 6 Passed: Conversation history rolls back on error');
+  }
+
   console.log('\n🎉 ALL DocmdAssistantEngine relay & prompt tests PASSED successfully!\n');
 } finally {
   server.close();

@@ -58,6 +58,14 @@ export interface AssistantOptions {
    *  Set a positive number to cap context size for token optimization.
    *  Note: Capping context may degrade response quality and completeness. */
   contextWindow?: number;
+  /** Optional custom formatter or summarizer for tool execution results before injection into context */
+  formatToolResult?: (toolName: string, args: any, result: any) => string | any;
+  /** Optional custom history compactor/summarizer to keep previous turns compact without losing essentials */
+  compactHistory?: (history: ChatMessage[]) => ChatMessage[];
+  /** Optional custom context transformer/synthesizer applied before prompt construction */
+  transformContext?: (context: string, turnInfo: { turn: number; query: string; toolCalls: any[] }) => string | Promise<string>;
+  /** Optional interceptor for relay payload before transmission */
+  onPayload?: (payload: Record<string, any>) => Record<string, any> | void;
 }
 
 export interface SearchResultItem {

@@ -13,7 +13,7 @@ import { parseAssistantOutput, cleanAssistantReply } from './utils/sanitizer.js'
 
 export { cleanAssistantReply, parseAssistantOutput };
 
-export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.19';
+export const ENGINE_VERSION = typeof process !== 'undefined' && process.env?.ENGINE_VERSION ? process.env.ENGINE_VERSION : '0.1.20';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are docmd assistant — a professional, precise, and concise technical AI assistant for this documentation site.
 
@@ -244,8 +244,9 @@ export class DocmdAssistantEngine {
     }
 
     this.isExecuting = true;
+    let userMsg: ChatMessage | null = null;
     try {
-      const userMsg: ChatMessage = {
+      userMsg = {
         role: 'user',
         content,
         sender: 'user',
@@ -262,6 +263,12 @@ export class DocmdAssistantEngine {
       }
 
       return await this.runRelayLoop(endpoint || 'https://api.docmd.io/v1/ai/chat', opts);
+    } catch (err: any) {
+      if (userMsg && this.history.length > 0 && this.history[this.history.length - 1]?.content === userMsg.content) {
+        this.history.pop();
+      }
+      this.emit('error', err);
+      throw err;
     } finally {
       this.isExecuting = false;
     }
@@ -279,8 +286,9 @@ export class DocmdAssistantEngine {
     }
 
     this.isExecuting = true;
+    let userMsg: ChatMessage | null = null;
     try {
-      const userMsg: ChatMessage = {
+      userMsg = {
         role: 'user',
         content,
         sender: 'user',
@@ -305,6 +313,9 @@ export class DocmdAssistantEngine {
       callbacks.onFinish?.(response);
       return response;
     } catch (err: any) {
+      if (userMsg && this.history.length > 0 && this.history[this.history.length - 1]?.content === userMsg.content) {
+        this.history.pop();
+      }
       callbacks.onError?.(err);
       this.emit('error', err);
       throw err;
@@ -626,12 +637,20 @@ export class DocmdAssistantEngine {
 
     const rawUserContent = this.history[this.history.length - 1]?.content || '';
     const originalUserQuery = rawUserContent.replace(/\n\n\[Documentation Search Context[\s\S]*$/i, '').trim();
-    let currentHistory = this.history.slice(0, -1).map(m => ({
+    let currentHistory = this.history.slice(0, -1);
+    if (typeof opts.compactHistory === 'function') {
+      try {
+        currentHistory = opts.compactHistory(currentHistory);
+      } catch (compactErr) {
+        console.warn('[docmd-assistant] compactHistory hook failed:', compactErr);
+      }
+    }
+    let mappedHistory = currentHistory.map(m => ({
       sender: m.sender || m.role,
       text: m.content
     }));
-    if (currentHistory.length > 12) {
-      currentHistory = currentHistory.slice(-12);
+    if (mappedHistory.length > 12) {
+      mappedHistory = mappedHistory.slice(-12);
     }
 
     let userMessage = originalUserQuery;
@@ -651,7 +670,7 @@ export class DocmdAssistantEngine {
         message: userMessage,
         pageUrl: typeof location !== 'undefined' ? location.href : undefined,
         pageTitle: typeof document !== 'undefined' ? document.title : undefined,
-        history: currentHistory,
+        history: mappedHistory,
         systemPrompt: this.systemPrompt,
         reasoning: reasoningVal,
         tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined
@@ -661,6 +680,12 @@ export class DocmdAssistantEngine {
       }
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
+      if (typeof opts.onPayload === 'function') {
+        try {
+          const mod = opts.onPayload(payload);
+          if (mod && typeof mod === 'object') Object.assign(payload, mod);
+        } catch {}
+      }
 
       let res: Response;
       try {
@@ -739,8 +764,8 @@ export class DocmdAssistantEngine {
       }
 
       // Ensure original user question is present in history before tool logs
-      if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
-        currentHistory.push({
+      if (mappedHistory.length === 0 || mappedHistory[mappedHistory.length - 1]?.text !== originalUserQuery) {
+        mappedHistory.push({
           sender: 'user',
           text: originalUserQuery
         });
@@ -752,20 +777,47 @@ export class DocmdAssistantEngine {
         const result = await this.executeTool(tc.name, tc.args);
         this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
-        const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        let resultStr: string;
+        if (typeof opts.formatToolResult === 'function') {
+          try {
+            const formatted = opts.formatToolResult(tc.name, tc.args, result);
+            resultStr = typeof formatted === 'string' ? formatted : JSON.stringify(formatted, null, 2);
+          } catch {
+            resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          }
+        } else {
+          resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        }
         accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
         currentHistory.push({
+          role: 'assistant',
+          sender: 'assistant',
+          content: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
+        } as any);
+        mappedHistory.push({
           sender: 'assistant',
           text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
         });
         currentHistory.push({
+          role: 'user',
+          sender: 'user',
+          content: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
+        } as any);
+        mappedHistory.push({
           sender: 'user',
           text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
         });
       }
 
-      const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      let contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      if (typeof opts.transformContext === 'function') {
+        try {
+          contextStr = await opts.transformContext(contextStr, { turn: turnCount, query: originalUserQuery, toolCalls: toolCallsToExecute });
+        } catch (txErr) {
+          console.warn('[docmd-assistant] transformContext hook failed:', txErr);
+        }
+      }
       userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.`;
       if (turnCount >= 2) {
         allowTools = false;
@@ -812,12 +864,20 @@ export class DocmdAssistantEngine {
 
     const rawUserContent = this.history[this.history.length - 1]?.content || '';
     const originalUserQuery = rawUserContent.replace(/\n\n\[Documentation Search Context[\s\S]*$/i, '').trim();
-    let currentHistory = this.history.slice(0, -1).map(m => ({
+    let currentHistory = this.history.slice(0, -1);
+    if (typeof opts.compactHistory === 'function') {
+      try {
+        currentHistory = opts.compactHistory(currentHistory);
+      } catch (compactErr) {
+        console.warn('[docmd-assistant] compactHistory hook failed:', compactErr);
+      }
+    }
+    let mappedHistory = currentHistory.map(m => ({
       sender: m.sender || m.role,
       text: m.content
     }));
-    if (currentHistory.length > 12) {
-      currentHistory = currentHistory.slice(-12);
+    if (mappedHistory.length > 12) {
+      mappedHistory = mappedHistory.slice(-12);
     }
 
     let userMessage = originalUserQuery;
@@ -838,7 +898,7 @@ export class DocmdAssistantEngine {
         message: userMessage,
         pageUrl: typeof location !== 'undefined' ? location.href : undefined,
         pageTitle: typeof document !== 'undefined' ? document.title : undefined,
-        history: currentHistory,
+        history: mappedHistory,
         systemPrompt: this.systemPrompt,
         reasoning: reasoningVal,
         tools: (allowTools && registeredTools.length > 0) ? registeredTools : undefined,
@@ -849,6 +909,12 @@ export class DocmdAssistantEngine {
       }
       if (opts.provider) payload.provider = opts.provider;
       if (opts.model) payload.model = opts.model;
+      if (typeof opts.onPayload === 'function') {
+        try {
+          const mod = opts.onPayload(payload);
+          if (mod && typeof mod === 'object') Object.assign(payload, mod);
+        } catch {}
+      }
 
       let res: Response;
       try {
@@ -930,8 +996,8 @@ export class DocmdAssistantEngine {
         }
 
         // Ensure original user question is present in history before tool logs
-        if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
-          currentHistory.push({
+        if (mappedHistory.length === 0 || mappedHistory[mappedHistory.length - 1]?.text !== originalUserQuery) {
+          mappedHistory.push({
             sender: 'user',
             text: originalUserQuery
           });
@@ -949,20 +1015,47 @@ export class DocmdAssistantEngine {
           callbacks.onToolResult?.({ name: tc.name, args: tc.args, result, callId: tc.id });
           this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
-          const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          let resultStr: string;
+          if (typeof opts.formatToolResult === 'function') {
+            try {
+              const formatted = opts.formatToolResult(tc.name, tc.args, result);
+              resultStr = typeof formatted === 'string' ? formatted : JSON.stringify(formatted, null, 2);
+            } catch {
+              resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+            }
+          } else {
+            resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          }
           accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
           currentHistory.push({
+            role: 'assistant',
+            sender: 'assistant',
+            content: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
+          } as any);
+          mappedHistory.push({
             sender: 'assistant',
             text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
           });
           currentHistory.push({
+            role: 'user',
+            sender: 'user',
+            content: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
+          } as any);
+          mappedHistory.push({
             sender: 'user',
             text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
           });
         }
 
-        const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+        let contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+        if (typeof opts.transformContext === 'function') {
+          try {
+            contextStr = await opts.transformContext(contextStr, { turn: turnCount, query: originalUserQuery, toolCalls: toolCallsToExecute });
+          } catch (txErr) {
+            console.warn('[docmd-assistant] transformContext hook failed:', txErr);
+          }
+        }
         userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.${turnCount >= maxTurns - 1 ? '\n\nYou must now synthesize your complete, final response based on all information retrieved. Do not call any further tools.' : ''}`;
         if (turnCount >= maxTurns - 1) {
           allowTools = false;
@@ -1093,8 +1186,8 @@ export class DocmdAssistantEngine {
       }
 
       // Ensure original user question is present in history before tool logs
-      if (currentHistory.length === 0 || currentHistory[currentHistory.length - 1]?.text !== originalUserQuery) {
-        currentHistory.push({
+      if (mappedHistory.length === 0 || mappedHistory[mappedHistory.length - 1]?.text !== originalUserQuery) {
+        mappedHistory.push({
           sender: 'user',
           text: originalUserQuery
         });
@@ -1112,20 +1205,47 @@ export class DocmdAssistantEngine {
         callbacks.onToolResult?.({ name: tc.name, args: tc.args, result, callId: tc.id });
         this.emit('tool_result', { name: tc.name, args: tc.args, result, callId: tc.id });
 
-        const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        let resultStr: string;
+        if (typeof opts.formatToolResult === 'function') {
+          try {
+            const formatted = opts.formatToolResult(tc.name, tc.args, result);
+            resultStr = typeof formatted === 'string' ? formatted : JSON.stringify(formatted, null, 2);
+          } catch {
+            resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          }
+        } else {
+          resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        }
         accumulatedToolSummaries.push(`[Search Result for ${tc.name}]:\n${resultStr}`);
 
         currentHistory.push({
+          role: 'assistant',
+          sender: 'assistant',
+          content: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
+        } as any);
+        mappedHistory.push({
           sender: 'assistant',
           text: `[Tool Call: ${tc.name}(${JSON.stringify(tc.args)})]`
         });
         currentHistory.push({
+          role: 'user',
+          sender: 'user',
+          content: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
+        } as any);
+        mappedHistory.push({
           sender: 'user',
           text: `[Tool Result for ${tc.name}]: ${resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...' : resultStr}`
         });
       }
 
-      const contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      let contextStr = truncateContextCleanly(accumulatedToolSummaries.join('\n\n'), this.contextWindow);
+      if (typeof opts.transformContext === 'function') {
+        try {
+          contextStr = await opts.transformContext(contextStr, { turn: turnCount, query: originalUserQuery, toolCalls: toolCallsToExecute });
+        } catch (txErr) {
+          console.warn('[docmd-assistant] transformContext hook failed:', txErr);
+        }
+      }
       userMessage = `User Question: ${originalUserQuery}\n\nRetrieved Documentation Context:\n${contextStr}\n\nBased on the retrieved documentation context above and your knowledge of docmd architecture, answer the user's question directly with concise explanations, exact commands, and clickable Markdown links. If the documentation does not have an explicit, dedicated configuration option or feature matching the user's exact query, clearly state this, synthesize the closest supported mechanism or architectural pattern (such as explicit navigation configuration in navigation.json or docmd.config.json, frontmatter, or project settings), and guide the user to the relevant documentation pages. Never return an empty response. Do not repeat introductory greetings.${turnCount >= maxTurns - 1 ? '\n\nYou must now synthesize your complete, final response based on all information retrieved. Do not call any further tools.' : ''}`;
       if (turnCount >= maxTurns - 1) {
         allowTools = false;
