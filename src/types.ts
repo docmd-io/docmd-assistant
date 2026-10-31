@@ -66,6 +66,8 @@ export interface AssistantOptions {
   transformContext?: (context: string, turnInfo: { turn: number; query: string; toolCalls: any[] }) => string | Promise<string>;
   /** Optional interceptor for relay payload before transmission */
   onPayload?: (payload: Record<string, any>) => Record<string, any> | void;
+  /** Whether external HTTP/HTTPS URL fetching is enabled for the assistant */
+  fetchExternalUrls?: boolean;
 }
 
 export interface SearchResultItem {

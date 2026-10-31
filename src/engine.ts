@@ -179,6 +179,14 @@ export class DocmdAssistantEngine {
     return this;
   }
 
+  public getOptions(): AssistantOptions {
+    return { ...this.options };
+  }
+
+  public isFetchExternalUrlsEnabled(): boolean {
+    return this.options.fetchExternalUrls === true;
+  }
+
   // --- State & History Surface ---
 
   public getHistory(): ChatMessage[] {
@@ -725,6 +733,10 @@ export class DocmdAssistantEngine {
         throw new Error(data.error || `Relay error (${res.status})`);
       }
 
+      if (data.projectSettings?.fetchExternalUrls !== undefined) {
+        this.options.fetchExternalUrls = !!data.projectSettings.fetchExternalUrls;
+      }
+
       const rawReply = data.text || data.reply || data.response || data.message || '';
       const parsed = parseAssistantOutput(rawReply, registeredTools.map(t => t.name));
       lastParsed = parsed;
@@ -963,6 +975,10 @@ export class DocmdAssistantEngine {
         }
         if (!res.ok || data.error) {
           throw new Error(data.error || `Relay error (${res.status})`);
+        }
+
+        if (data.projectSettings?.fetchExternalUrls !== undefined) {
+          this.options.fetchExternalUrls = !!data.projectSettings.fetchExternalUrls;
         }
 
         const rawReply = data.text || data.reply || data.response || data.message || '';

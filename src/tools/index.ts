@@ -157,11 +157,11 @@ export function createStandardTools(
     },
     {
       name: 'read_documentation_page',
-      description: 'Fetch and read the full content of a specific documentation page or section path.',
+      description: 'Fetch and read the full content of a specific documentation page, section path, or external URL (when external URL fetching is enabled).',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'The page path to fetch and read (e.g. /quickstart or /docs/setup)' }
+          path: { type: 'string', description: 'The page path or external HTTP/HTTPS URL to fetch and read (e.g. /quickstart, /docs/setup, or https://...)' }
         },
         required: ['path']
       },
